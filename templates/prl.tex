@@ -1,0 +1,89 @@
+\documentclass[
+    aps,
+    prl,
+    reprint,
+    %groupedaddress,
+    superscriptaddress,
+    linenumbers,
+    nolongbibliography,
+    nobibnotes,
+    nofootinbib,
+    %floatfix,
+]{revtex4-2}
+
+\bibliographystyle{apsrev4-2}
+
+\usepackage[dvipsnames, usenames]{xcolor}
+\definecolor{linkcolor}{rgb}{0.1, 0.5, 0.7}
+
+\usepackage[
+	colorlinks=true,
+	linkcolor=linkcolor,
+	citecolor=linkcolor,
+	filecolor=linkcolor,
+	urlcolor=linkcolor,
+	pdfusetitle,
+]{hyperref}
+
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{physics}
+\usepackage{orcidlink}
+
+\usepackage{titlesec}
+\titleformat{\section}[runin]{\it}{\thesection}{0pt}{\phantomsection}[---]
+\titlespacing{\section}{\parindent}{\parskip}{-\parskip}
+
+\let\oldacknowledgments\acknowledgments
+\renewcommand{\acknowledgments}{\vspace{\baselineskip}\oldacknowledgments}
+
+\newcommand{\comment}[1]{}
+\newcommand{\rednote}[1]{{\color{Red} #1}}
+\newcommand{\mm}[1]{{\color{cyan}MM: #1}}
+
+\newcommand{\ligo}{\affiliation{LIGO Laboratory, Massachusetts Institute of Technology, Cambridge, MA 02139, USA}}
+\renewcommand{\mit}{\affiliation{Kavli Institute for Astrophysics and Space Research and Department of Physics, Massachusetts Institute of Technology, Cambridge, MA 02139, USA}}
+
+
+\begin{document}
+
+
+\title{Title}
+
+\author{Matthew Mould\,\orcidlink{0000-0001-5460-2910}}
+\email{mmould@mit.edu}
+\ligo\mit
+
+\date{\today}
+
+\begin{abstract}
+
+This is the abstract.
+
+\end{abstract}
+
+\maketitle
+
+
+\section{Introduction}
+
+This is the introduction.
+
+
+\acknowledgments
+
+We thank friends for discussions.
+%
+M.M. is supported by the LIGO Laboratory through the National Science Foundation award PHY-2309200.
+%
+The authors are grateful for computational resources provided by
+the LIGO Laboratory supported by National Science Foundation Grants PHY-0757058 and PHY-0823459,
+and by subMIT at MIT Physics.
+%
+This material is based upon work supported by NSF's LIGO Laboratory which is a major facility fully funded by the National Science Foundation and has made use of data or software obtained from the Gravitational Wave Open Science Center (gwosc.org), a service of the LIGO Scientific Collaboration, the Virgo Collaboration, and KAGRA.
+
+
+\bibliography{draft}
+
+
+\end{document}

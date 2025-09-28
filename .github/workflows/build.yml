@@ -1,0 +1,52 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'draft/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      DIR: draft
+      FILE: draft
+ 
+    steps:
+
+      - name: repo
+        uses: actions/checkout@v4
+
+      - name: texlive
+        run: |
+          sudo apt-get update
+          sudo apt-get install texlive texlive-publishers texlive-science latexmk cm-super
+
+      - name: latex
+        working-directory: ${{env.DIR}}
+        run: |
+          pdflatex -interaction=nonstopmode ${{env.FILE}}
+          if bibtex ${{env.FILE}}; then
+            pdflatex -interaction=nonstopmode ${{env.FILE}}
+            pdflatex -interaction=nonstopmode ${{env.FILE}}
+          fi
+
+      - name: push
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git pull
+          if git show-ref --quiet remotes/origin/build; then
+            git push -d origin build
+          fi
+          git switch --orphan build
+          mv draft/draft.pdf .
+          git add draft.pdf
+          git commit -m 'build'
+          git push --set-upstream origin build
+
