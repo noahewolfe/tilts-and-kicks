@@ -18,5 +18,6 @@ lamb = Uniform(minimum=-10, maximum=10)
 mu_chi = Uniform(minimum=0, maximum=1)
 sigma_chi = Uniform(minimum=0.005, maximum=1)
 
-mu_kick = Uniform(minimum=0, maximum=0.3)
-sigma_kick = Uniform(minimum=0.005, maximum=1)
+#mu_kick = Uniform(minimum=-11, maximum=3)
+sigma_kick = Uniform(minimum=0.1, maximum=1)
+xi_spin = Uniform(minimum=0, maximum=1)
