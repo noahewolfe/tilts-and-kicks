@@ -254,3 +254,20 @@ def bplm1q_plz_truncnormmag(
     )
 
     return p_m1 * p_q * p_z * p_a1 * p_a2
+
+
+def build_interp_sampler(density, xp):
+    """ factory-function for inverse CDF sampling by interpolated a density
+        over points xp. """
+    from quadax import cumulative_trapezoid
+
+    prob = density(xp)
+    norm = jnp.trapezoid(prob, xp)
+    prob /= norm
+
+    cdf = cumulative_trapezoid(y=prob, x=xp, initial=0)
+
+    def func(u):
+        return jnp.interp(u, cdf, xp)
+
+    return func

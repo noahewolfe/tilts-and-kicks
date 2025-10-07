@@ -267,3 +267,19 @@ def logtrapz(log_y, x=None, dx=1.0, axis=-1):
     log_integral = logsumexp(log_integrand, axis=axis) - math.log(2)
 
     return log_integral
+
+
+def monotonic_select(thresholds, values, right_closed_left_open=True):
+    import jax.numpy as jnp
+
+    thresholds = jnp.asarray(thresholds)
+    values = jnp.asarray(values)
+    assert values.shape[0] == thresholds.shape[0] + 1
+
+    side = 'right' if right_closed_left_open else 'left'
+
+    def func(x):
+        # x can be scalar or array; searchsorted broadcasts over x
+        idx = jnp.searchsorted(thresholds, x, side=side)  # in [0, len(thresholds)]
+        return values[idx]  # jnp.take handles array idx too
+    return func
