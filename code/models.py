@@ -267,7 +267,8 @@ def build_interp_sampler(density, xp):
 
     cdf = cumulative_trapezoid(y=prob, x=xp, initial=0)
 
-    def func(u):
+    def func(key):
+        u = jax.random.uniform(key)
         return jnp.interp(u, cdf, xp)
 
     return func
