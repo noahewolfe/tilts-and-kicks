@@ -3,6 +3,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.scipy.special as jsp
+import jax.scipy.stats as jss
 
 import wcosmo
 from astropy import units
@@ -256,19 +257,45 @@ def bplm1q_plz_truncnormmag(
     return p_m1 * p_q * p_z * p_a1 * p_a2
 
 
-def build_interp_sampler(density, xp):
+def build_interp_sampler(density, xs, xp=jnp):
     """ factory-function for inverse CDF sampling by interpolated a density
         over points xp. """
-    from quadax import cumulative_trapezoid
+    if xp == jnp:
+        from quadax import cumulative_trapezoid
+    else:
+        from scipy.integrate import cumulative_trapezoid
 
-    prob = density(xp)
-    norm = jnp.trapezoid(prob, xp)
+    prob = density(xs)
+    norm = xp.trapezoid(prob, xs)
     prob /= norm
 
-    cdf = cumulative_trapezoid(y=prob, x=xp, initial=0)
+    cdf = cumulative_trapezoid(y=prob, x=xs, initial=0)
 
-    def func(key):
-        u = jax.random.uniform(key)
-        return jnp.interp(u, cdf, xp)
+    if xp == jnp:
+        def func(key):
+            u = jax.random.uniform(key)
+            return xp.interp(u, cdf, xs)
+    elif xp == np:
+        def func(rng, size=()):
+            u = rng.uniform(size=size)
+            return xp.interp(u, cdf, xs)
 
     return func
+
+
+def skewtruncnorm_shape(x, mu, sigma, skew, high, low):
+    branch1 = truncnorm(x, mu, sigma * (1 + skew), high, low) * (1 + skew)
+    branch2 = truncnorm(x, mu, sigma * (1 - skew), high, low) * (1 - skew) 
+    return jnp.where(x <= 0, branch1, branch2)
+
+
+def skewtruncnorm_norm(mu, sigma, skew, high, low):
+    xs = jnp.linspace(low, high, 1_000)
+    shape = skewtruncnorm_shape(xs, mu, sigma, skew, high, low)
+    return jnp.trapezoid(shape, xs)
+
+
+def skewtruncnorm(x, mu, sigma, skew, high, low):
+    shape = skewtruncnorm_shape(x, mu, sigma, skew, high, low)
+    norm = skewtruncnorm_norm(mu, sigma, skew, high, low)
+    return shape / norm 

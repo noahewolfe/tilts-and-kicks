@@ -283,3 +283,9 @@ def monotonic_select(thresholds, values, right_closed_left_open=True):
         idx = jnp.searchsorted(thresholds, x, side=side)  # in [0, len(thresholds)]
         return values[idx]  # jnp.take handles array idx too
     return func
+
+
+def calc_chieff(q, a1, a2, ct1, ct2):
+    numer = a1 * ct1 + q * a2 * ct2
+    denom = 1 + q
+    return numer / denom
