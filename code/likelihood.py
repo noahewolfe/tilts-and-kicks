@@ -184,3 +184,31 @@ def compute_prior_fraction(
     error = ((jnp.mean(w**2) - frac**2) / n)**0.5
 
     return frac, error
+
+
+def unravel(param_keys, x):
+    return dict(zip(param_keys, x))
+
+
+def get_log_likelihood(posteriors, injections, model):
+
+    def log_likelihood(parameters):
+        return shape_ln_likelihood_and_variance(
+            posteriors, injections, model, parameters
+        )
+
+    return log_likelihood
+
+
+def get_log_probs(
+    param_keys, posteriors, injections, model, log_prior, maximum_variance=1
+):
+
+    log_likelihood = get_log_likelihood(posteriors, injections, model)
+
+    def log_target(x):
+        parameters = unravel(param_keys, x)
+        lkl, var, _, _, _ = log_likelihood(parameters)
+        return lkl + taper(maximum_variance, var) + log_prior(parameters) 
+
+    return log_likelihood, log_target

@@ -95,7 +95,7 @@ def get_posteriors(
     load = False,
     save = False,
     xp = np,
-    datadir = '../../data',
+    datadir = '../data',
     seed = 1
 ):
     datadir = get_datadir(datadir, catalog, pars)
@@ -180,7 +180,7 @@ def get_injections(
     load = False,
     save = False,
     xp=np,
-    datadir='../../data'
+    datadir='../data'
 ):
     datadir = get_datadir(datadir, catalog, pars)
     datapath = f'{datadir}/injections.h5'
@@ -270,7 +270,4 @@ def get_injections(
 
 
 def get_gwtc4_bbh():
-
-    wit 
-
     '/work/submit/newolfe/lvk-data/GWTC-4/RP/events_list_bbh_only.txt'

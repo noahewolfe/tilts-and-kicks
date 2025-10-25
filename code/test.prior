@@ -1,0 +1,2 @@
+lam_0 = DirichletElement(order=0, n_dimensions=3, label='lam_')
+lam_1 = DirichletElement(order=1, n_dimensions=3, label='lam_')

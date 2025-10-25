@@ -169,7 +169,7 @@ def scan(fn, desc=None):
     return tracked
 
 
-def plot_loss(loss, log=False, zoom=False):
+def plot_loss(loss, log=False, zoom=False, outpath=None):
     import numpy as np
     import matplotlib.pyplot as plt
 
@@ -185,6 +185,12 @@ def plot_loss(loss, log=False, zoom=False):
 
     if zoom:
         ax.set_ylim(np.nanmin(loss) - 5, np.nanmin(loss) + 50)
+
+    ax.set_xlabel('step')
+    ax.set_ylabel('loss')
+
+    if outpath is not None:
+        fig.savefig(outpath)
 
     return fig, ax
 

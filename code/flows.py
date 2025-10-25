@@ -257,3 +257,15 @@ def partition(model, **kwargs):
     )
     default_kwargs.update(**kwargs)
     return eqx.partition(pytree=model, **default_kwargs)
+
+def save(filename, model):
+    # TODO: maybe redundant and could be accomplished with filter_spec and
+    # is_leaf kwargs of serialise ?
+    params, _ = partition(model)
+    eqx.tree_serialise_leaves(filename, params)
+
+
+def load(filename, like_model):
+    params, static = partition(like_model)
+    params = eqx.tree_deserialise_leaves(filename, params)
+    return eqx.combine(params, static)

@@ -223,7 +223,7 @@ def bplm1q_plz_truncnormmag(
         dmin=parameters['delta_m'],
         norm_xmin=norm_mmin,
         norm_xmax=norm_mmax
-    ) 
+    )
 
     p_q = plp_q(
         mass_ratio=dataset['mass_ratio'],
@@ -298,4 +298,69 @@ def skewtruncnorm_norm(mu, sigma, skew, high, low):
 def skewtruncnorm(x, mu, sigma, skew, high, low):
     shape = skewtruncnorm_shape(x, mu, sigma, skew, high, low)
     norm = skewtruncnorm_norm(mu, sigma, skew, high, low)
-    return shape / norm 
+    return shape / norm
+
+
+def bpl2p_plz_truncnormmag_isogausstilt(dataset, parameters):
+    from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+    from pixelpop.models.gwpop_models import (
+        BrokenPowerlawPlusTwoPeaks_PrimaryMass
+    )
+
+    if 'lam_2' not in parameters.keys():
+        if 'lam_0' in parameters.keys() and 'lam_1' in parameters.keys():
+            parameters['lam_2'] = 1 - parameters['lam_0'] - parameters['lam_1']
+
+    log_p_m1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass(
+        dataset,
+        alpha_1=parameters['alpha_1'],
+        alpha_2=parameters['alpha_2'],
+        mmin=parameters['mmin'],
+        break_mass=parameters['break_mass'],
+        delta_m_1=parameters['delta_m_1'],
+        lam_fractions=(
+            parameters['lam_0'], parameters['lam_1'], parameters['lam_2']
+        ),
+        mpp_1=parameters['mpp_1'],
+        sigpp_1=parameters['sigpp_1'],
+        mpp_2=parameters['mpp_2'],
+        sigpp_2=parameters['sigpp_2'],
+        mmax=300.0,
+        gaussian_mass_maximum=100.0
+    )
+    p_m1 = jnp.exp(log_p_m1)
+
+    log_p_q_given_m1 = PowerlawPlusPeak_MassRatio(
+        dataset,
+        slope=parameters['beta'],
+        minimum=parameters['mmin'],
+        delta_m=parameters['delta_m_1']
+    )
+    p_q_given_m1 = jnp.exp(log_p_q_given_m1)
+
+    log_pl_z = log_powerlaw_redshift(dataset, parameters)
+    p_z = jnp.exp(log_pl_z)
+
+    p_a1 = truncnorm(
+        dataset['a_1'],
+        parameters['mu_chi'],
+        parameters['sigma_chi'],
+        high=1,
+        low=0
+    )
+    p_a2 = truncnorm(
+        dataset['a_2'],
+        parameters['mu_chi'],
+        parameters['sigma_chi'],
+        high=1,
+        low=0
+    )
+
+    p_cos_tilts = iso_gauss_spin_tilt(
+        dataset,
+        parameters['xi_spin'],
+        parameters['sigma_spin'],
+        parameters['mu_spin']
+    )
+
+    return p_m1 * p_q_given_m1 * p_z * p_a1 * p_a2 * p_cos_tilts

@@ -40,27 +40,6 @@ def fit(key, flow, log_target, clip=True, lr=1e-1, steps=1_000, batch_size=1):
     return flow, losses
 
 
-def save(filename, model):
-    # TODO: maybe redundant and could be accomplished with filter_spec and
-    # is_leaf kwargs of serialise ?
-    params, _ = eqx.partition(
-        pytree=model,
-        filter_spec=eqx.is_inexact_array,
-        is_leaf=lambda leaf: isinstance(leaf, NonTrainable),
-    )
-    eqx.tree_serialise_leaves(filename, params)
-
-
-def load(filename, like_model):
-    params, static = eqx.partition(
-        pytree=like_model,
-        filter_spec=eqx.is_inexact_array,
-        is_leaf=lambda leaf: isinstance(leaf, NonTrainable),
-    )
-    params = eqx.tree_deserialise_leaves(filename, params)
-    return eqx.combine(params, static)
-
-
 def reverse_kl(log_p, log_q):
     return jnp.mean(log_q - log_p)
 
