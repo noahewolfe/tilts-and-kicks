@@ -9,6 +9,12 @@ def plot_corner(xs, fname=None, trim=None, **kwargs):
 
     """ Make corner plots, bilby-style. """
 
+    if isinstance(xs, dict):
+        labels = kwargs.get('labels', list(xs.keys()))
+        kwargs['labels'] = labels
+        unpacked = np.column_stack([xs[k] for k in xs.keys()])
+        return plot_corner(unpacked, fname=fname, trim=trim, **kwargs)
+
     if isinstance(xs, Array):
         xs = np.array(xs)
 
