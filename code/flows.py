@@ -25,6 +25,11 @@ from paramax import NonTrainable
 from paramax.wrappers import non_trainable
 
 
+def bounded_to_reals(x, bounds):
+    y = (x - bounds[:, 0]) / (bounds[:, 1] - bounds[:, 0])
+    return jax.scipy.special.logit(y)
+
+
 def Affine(loc=0, scale=1):
     affine = AffinePositiveScale(loc, scale)
     loc, scale = jnp.broadcast_arrays(

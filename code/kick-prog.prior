@@ -1,16 +1,37 @@
-# mprog
-mbhmax = Uniform(minimum=30, maximum=100)
-mturnover = Uniform(minimum=10, maximum=30)
+# o4a black hole mass distribution
+alpha1 = Uniform(minimum=-4, maximum=12)
+alpha2 = Uniform(minimum=-4, maximum=12)
+mbreak = Uniform(minimum=20, maximum=50)
+mpp1 = Uniform(minimum=5, maximum=20)
+sigpp1 = Uniform(minimum=0, maximum=10)
+mpp2 = Uniform(minimum=25, maximum=60)
+sigpp2 = Uniform(minimum=0, maximum=10)
+delta_m = Uniform(minimum=0, maximum=10)
+mmin = Uniform(minimum=3, maximum=6.5)
+lam_tilde_0 = Uniform(minimum=0, maximum=1)
+lam_tilde_1 = Uniform(minimum=0, maximum=1)
+lam_tilde_2 = Uniform(minimum=0, maximum=1)
+
+beta = Uniform(minimum=-2, maximum=7)
+
+# imf and rem mass function
+mbhmax = Uniform(minimum=35, maximum=100)
+mturnover = Uniform(minimum=10, maximum=35)
+sigma_mbh = Uniform(minimum=0.01, maximum=5)
 alpha_prog_1 = Uniform(minimum=-1, maximum=10)
 alpha_prog_2 = Uniform(minimum=-1, maximum=10)
 
+# kicks!
+sigma_kick = Uniform(minimum=0.1, maximum=1e6)
+
+# branching ratio between subpopulations
+xi = Uniform(minimum=0, maximum=1)
+
+# redshift
 lamb = Uniform(minimum=-10, maximum=10)
 
+# iid truncnorm spins
 mu_chi = Uniform(minimum=0, maximum=1)
 sigma_chi = Uniform(minimum=0.005, maximum=1)
-
-#mu_kick = Uniform(minimum=-11, maximum=3)
-sigma_kick = Uniform(minimum=0.1, maximum=1)
-xi_spin = Uniform(minimum=0, maximum=1)
 
 
