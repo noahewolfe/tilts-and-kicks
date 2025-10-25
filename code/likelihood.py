@@ -201,14 +201,19 @@ def get_log_likelihood(posteriors, injections, model):
 
 
 def get_log_probs(
-    param_keys, posteriors, injections, model, log_prior, maximum_variance=1
+    posteriors,
+    injections,
+    model,
+    log_prior,
+    transform=lambda x: x,
+    maximum_variance=1
 ):
 
     log_likelihood = get_log_likelihood(posteriors, injections, model)
 
     def log_target(x):
-        parameters = unravel(param_keys, x)
+        parameters = transform(x)
         lkl, var, _, _, _ = log_likelihood(parameters)
-        return lkl + taper(maximum_variance, var) + log_prior(parameters) 
+        return lkl + taper(maximum_variance, var) + log_prior(parameters)
 
     return log_likelihood, log_target
