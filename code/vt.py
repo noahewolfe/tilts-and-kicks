@@ -13,6 +13,7 @@ from tqdm import tqdm
 import jax
 jax.config.update('jax_enable_x64', True)
 jax.config.update('jax_platform_name', 'cpu')
+import jax.numpy as jnp
 
 import bilby
 bilby.core.utils.setup_logger(log_level='WARNING')
@@ -112,7 +113,9 @@ def get_parameters(name, path=None, outdir=None, **kwargs):
                 parameters.pop(key)
 
         if 'lam_2' not in parameters.keys():
-            parameters['lam_2'] = 1 - parameters['lam_0'] - parameters['lam_1']
+            parameters['lam_2'] = np.round(1 - parameters['lam_0'] - parameters['lam_1'], decimals=2)
+
+        assert (parameters['lam_0'] + parameters['lam_1'] + parameters['lam_2']) == 1.0
 
         parameters.update(kwargs)
 
@@ -258,15 +261,18 @@ def main(
         this_m1 = injection_parameters['mass_1_source']
 
         if model == 'o4a-strong-unif-tilts':
-            pq = np.exp(PowerlawPlusPeak_MassRatio(
-                dict(
-                    mass_1=this_m1 * np.ones(np.shape(qs)),
-                    mass_ratio=qs
-                ),
-                slope=parameters['beta'],
-                minimum=parameters['mmin'],
-                delta_m=parameters['delta_m_1']
-            ))
+            @jax.jit
+            def calc_p_q(this_m1):
+                return jnp.exp(PowerlawPlusPeak_MassRatio(
+                    dict(
+                        mass_1=this_m1 * jnp.ones(jnp.shape(qs)),
+                        mass_ratio=qs
+                    ),
+                    slope=parameters['beta'],
+                    minimum=parameters['mmin'],
+                    delta_m=parameters['delta_m_1']
+                ))
+            pq = calc_p_q(this_m1) 
             q_prior = Interped(qs, pq, minimum=qmin, maximum=1, name='q')
             injection_parameters['mass_ratio'] = q_prior.sample()
             inj_priors['mass_ratio'] = q_prior
@@ -613,7 +619,6 @@ if __name__ == '__main__':
         kwargs
     ) = parse_args()
 
-    outdir = f'{outdir}/{seed}'
     print(f'will save injections to {outdir}')
     os.makedirs(outdir, exist_ok=True)
 
