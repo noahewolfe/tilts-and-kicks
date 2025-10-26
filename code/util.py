@@ -312,5 +312,13 @@ def list_to_dict(data):
     return result
 
 
+def concat_dicts(dic1, dic2):
+    import numpy as np
+    assert dic1.keys() == dic2.keys()
+    result = {}
+    for k in dic1.keys():
+        result[k] = np.concatenate((dic1[k], dic2[k]))
+    return result
+
 def next_power_of_2(x):
     return 1 if x == 0 else 2**(x - 1).bit_length()

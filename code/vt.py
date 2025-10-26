@@ -7,6 +7,7 @@ from ast import literal_eval
 from copy import deepcopy
 
 import h5py
+import h5ify
 import numpy as np
 from tqdm import tqdm
 
@@ -33,6 +34,7 @@ from util import list_to_dict
 from util import write_config
 from util import get_git_revision_short_hash
 from util import next_power_of_2
+from util import concat_dicts
 
 
 parser = argparse.ArgumentParser()
@@ -486,49 +488,35 @@ def main(
     print('done.')
 
 
-def concat(outdir, all=False):
+def concat(outdir, load_all=False):
     outdir = os.path.abspath(outdir)
-    dirs = [
+    dirs = sorted([
         f'{outdir}/{d}'
         for d in os.listdir(outdir)
-        if os.path.isdir(f'{outdir}/{d}')
-    ]
-
-    if all:
-        outpath = f'{outdir}/all.hdf5'
-        files = []
-        for i in range(len(dirs)):
-            fname = f'{dirs[i]}/allinjs'
-            if os.path.isfile(f'{fname}.dat'):
-                files.append(f'{fname}.dat')
-            elif os.path.isfile(f'{fname}.hdf5'):
-                files.append(f'{fname}.hdf5')
-            else:
-                print(f'No file found in {dirs[i]}')
-
-        detectable = pd.read_hdf(
-            f'{outdir}/detectable.hdf5',
-            'detectable'
+        if (
+            os.path.isdir(f'{outdir}/{d}')
+            and os.path.isfile(f'{outdir}/{d}/detectable.hdf5')
         )
-        total_generated = detectable['total_generated'].iloc[0]
-        columns = [c for c in detectable.columns if c != 'total_generated']
+    ])
 
-        def load(file):
-            ext = os.path.splitext(file)[-1]
-            if ext == '.dat':
-                data = pd.read_csv(file, sep='\t')
-                total = len(data)
-            elif ext == '.hdf5':
-                total, data = load_hdf5_as_dict(file)
-            else:
-                raise NotImplementedError(f'Cant load {file}')
-            return total, data
+    def load(dir, name):
+        with open(f'{dir}/parameters.json', 'r') as f:
+            parameters = json.loads(f.read())
+        data = h5ify.load(f'{dir}/{name}.hdf5')
+        attrs = data.pop('attrs')
+        total = attrs.pop('total_generated')
+        return parameters, attrs, total, data
 
-        with h5py.File(outpath, 'w') as f:
-            grp = f.create_group('all')
+    if load_all:
+        detectable = h5ify.load(f'{outdir}/detectable.hdf5')
+        total_generated = detectable.pop('total_generated')
+        parameters = detectable.pop('parameters')
+        attrs = detectable.pop('attrs')
+
+        with h5py.File(f'{outdir}/all.hdf5', 'w') as f:
             dsets = dict()
-            for c in columns:
-                dsets[c] = grp.create_dataset(
+            for c in detectable.keys():
+                dsets[c] = f.create_dataset(
                     c,
                     (total_generated,),
                     dtype=np.int64 if c == 'data_seed' else np.float64,
@@ -536,53 +524,40 @@ def concat(outdir, all=False):
                 )
 
             j = 0
-            for file in tqdm(files):
-                n, data = load(file)
-                for c in columns:
-                    dsets[c][j : j + len(data[c])] = data[c]
+            for dir in tqdm(dirs):
+                _, _, _, data = load(dir, 'all')
+                n = len(data[c])
+                for c in detectable.keys():
+                    dsets[c][j : j + n] = data[c]
                 j += n
+
+            for k, v in attrs.items():
+                f.attrs[k] = v
+
+            grp = f.create_group('parameters')
+            for k in parameters.keys():
+                grp.create_dataset(k, data=parameters[k])
     else:
-        files = []
-        for i in range(len(dirs)):
-            fname = f'{dirs[i]}/detectable'
-            if os.path.isfile(f'{fname}.dat'):
-                files.append(f'{fname}.dat')
-            elif os.path.isfile(f'{fname}.hdf5'):
-                files.append(f'{fname}.hdf5')
-            else:
-                print(f'No file found in {dirs[i]}')
-        # TODO: this could be much more efficient
-        # namely, not concat all the pandas df into one big thing in memory
+        parameters, attrs, total_generated, detectable = load(
+            dirs[0], 'detectable'
+        )
 
-        def load(file):
-            ext = os.path.splitext(file)[-1]
-            if ext == '.dat':
-                data = pd.read_csv(file, sep='\t')
-                total = data['total_generated'].iloc[0]
-            elif ext == '.hdf5':
-                total, data = load_hdf5_as_df(file)
-            else:
-                raise NotImplementedError(f'Cant load {file}')
-            return total, data
-
-        total_generated, detectable = load(files[0])
-
-        for file in tqdm(files[1:]):
-            total, data = load(file)
+        for dir in tqdm(dirs[1:]):
+            _p, _a, total, data = load(dir, 'detectable')
+            assert _p == parameters
+            assert _a == attrs
             total_generated += total
-            detectable = pd.concat((detectable, data), ignore_index=True)
+            detectable = concat_dicts(detectable, data)
 
-        # TODO: ultimately, probably best not to save with pandas
-        # pytable format, and instead work with my own hdf5 file
-        # e.g. for storing meta data like the model, commit, total_generated
         detectable['total_generated'] = total_generated
+        detectable['parameters'] = parameters
         detectable['mass_1_source'] = (
             detectable['mass_1'] / (1 + detectable['redshift'])
         )
-        detectable.to_hdf(
+        h5ify.save(
             f'{outdir}/detectable.hdf5',
-            mode='w',
-            key='detectable'
+            dict(**detectable, attrs=attrs),
+            mode='w'
         )
 
 
