@@ -310,3 +310,7 @@ def list_to_dict(data):
         for key, value in d.items():
             result.setdefault(key, []).append(value)
     return result
+
+
+def next_power_of_2(x):
+    return 1 if x == 0 else 2**(x - 1).bit_length()

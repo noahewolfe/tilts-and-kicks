@@ -43,7 +43,7 @@ parser.add_argument('--zero-noise', action='store_true')
 parser.add_argument('--seed', type=int)
 parser.add_argument('--model', type=str, default='o4a-strong-unif-tilts')
 parser.add_argument('--parameters', default=None)
-parser.add_argument('--extra-kwargs', type=json.loads)
+parser.add_argument('--extra-kwargs', type=json.loads, default='{}')
 
 
 def parse_args():
@@ -111,6 +111,9 @@ def get_parameters(name, path=None, outdir=None, **kwargs):
             if key in ['mu_spin', 'sigma_spin', 'xi_spin']:
                 parameters.pop(key)
 
+        if 'lam_2' not in parameters.keys():
+            parameters['lam_2'] = 1 - parameters['lam_0'] - parameters['lam_1']
+
         parameters.update(kwargs)
 
         if outdir is not None:
@@ -121,7 +124,7 @@ def get_parameters(name, path=None, outdir=None, **kwargs):
 
 
 def get_inj_priors(name, parameters):
-    inj_priors = bilby.gw.prior.BBHPriorDict(dict(
+    inj_priors = bilby.core.prior.PriorDict(dict(
         dec=Cosine(name='dec'),
         ra=Uniform(
             name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic'
@@ -233,7 +236,7 @@ def main(
     parameters = get_parameters(
         model, path=parameters, outdir=outdir, **kwargs
     )
-    inj_priors = get_inj_priors(model, parameters)
+    priors = get_inj_priors(model, parameters)
 
     qmin = 0.10
     qs = np.linspace(qmin, 1, 500)
@@ -249,6 +252,7 @@ def main(
 
     pbar = tqdm(total=number)
     while i < number:
+        inj_priors = deepcopy(priors)
         injection_parameters = inj_priors.sample()
         this_z = injection_parameters['redshift']
         this_m1 = injection_parameters['mass_1_source']
@@ -265,6 +269,7 @@ def main(
             ))
             q_prior = Interped(qs, pq, minimum=qmin, maximum=1, name='q')
             injection_parameters['mass_ratio'] = q_prior.sample()
+            inj_priors['mass_ratio'] = q_prior
 
         injection_parameters['mass_1'] = this_m1 * (1 + this_z)
         injection_parameters['mass_2'] = (
