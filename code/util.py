@@ -301,3 +301,12 @@ def calc_chieff(q, a1, a2, ct1, ct2):
     numer = a1 * ct1 + q * a2 * ct2
     denom = 1 + q
     return numer / denom
+
+
+def list_to_dict(data):
+    """ convert a list of dicts to dict of lists """
+    result = {}
+    for d in data:
+        for key, value in d.items():
+            result.setdefault(key, []).append(value)
+    return result

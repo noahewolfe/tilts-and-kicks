@@ -1,4 +1,5 @@
 import os
+import json
 import pickle
 import argparse
 import configparser
@@ -9,6 +10,10 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
+import jax
+jax.config.update('jax_enable_x64', True)
+jax.config.update('jax_platform_name', 'cpu')
+
 import bilby
 bilby.core.utils.setup_logger(log_level='WARNING')
 
@@ -17,23 +22,53 @@ from bilby.core.prior import Uniform, Sine, Cosine, Interped
 from bilby.gw.source import lal_binary_black_hole
 from bilby.gw.conversion import convert_to_lal_binary_black_hole_parameters
 
-import gwpopulation
-gwpopulation.set_backend('numpy')
-
-from gwpopulation.models.redshift import PowerLawRedshift
-from gwpopulation.models.mass import SinglePeakSmoothedMassDistribution
+from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+from pixelpop.models.gwpop_models import BrokenPowerlawPlusTwoPeaks_PrimaryMass
 
 from models import truncnorm
+from models import log_powerlaw_redshift
 
+from util import list_to_dict
 from util import write_config
+from util import get_git_revision_short_hash
 from util import next_power_of_2
 
 
-def write_hdf5(path, df, total_generated, model, commit=None):
+parser = argparse.ArgumentParser()
+parser.add_argument('--outdir', type=str)
+parser.add_argument('--ninj', type=int, default=1_000)
+parser.add_argument('--sample-prior', action='store_true')
+parser.add_argument('--snr-threshold', type=int, default=11)
+parser.add_argument('--zero-noise', action='store_true')
+parser.add_argument('--seed', type=int)
+parser.add_argument('--model', type=str, default='o4a-strong-unif-tilts')
+parser.add_argument('--parameters', default=None)
+parser.add_argument('--extra-kwargs', type=json.loads)
+
+
+def parse_args():
+    args = parser.parse_args()
+    os.makedirs(args.outdir, exist_ok=True)
+    write_config(args)
+    add_noise = not args.zero_noise
+    return (
+        args.outdir,
+        args.ninj,
+        args.sample_prior,
+        args.snr_threshold,
+        add_noise,
+        args.seed,
+        args.model,
+        args.parameters,
+        args.extra_kwargs
+    )
+
+
+def write_hdf5(path, dic, total_generated, model, commit=None):
     # clean data types in df
-    for key in df.keys():
-        if df.dtypes[key] == object:
-            df[key] = [v.item() for v in df[key].values]
+    #for key in dic.keys():
+    #    if df.dtypes[key] == object:
+    #        df[key] = [v.item() for v in df[key].values]
 
     with h5py.File(path, 'w') as f:
         f.attrs['total_generated'] = total_generated
@@ -41,11 +76,9 @@ def write_hdf5(path, df, total_generated, model, commit=None):
         if commit is not None:
             f.attrs['commit'] = commit
 
-        for key in df.keys():
-            dtype = np.int64 if key == 'data_seed' else np.float64
-            print(key)
-            print(df[key].values)
-            f.create_dataset(key, data=df[key].values, dtype=dtype)
+        for k, v in dic.items():
+            dtype = np.int64 if k == 'data_seed' else np.float64
+            f.create_dataset(k, data=v, dtype=dtype)
 
 
 def load_hdf5_as_dict(path):
@@ -62,7 +95,32 @@ def load_hdf5_as_df(path):
     return total_generated, pd.DataFrame(data)
 
 
-def get_inj_priors(name, **kwargs):
+def get_parameters(name, path=None, outdir=None, **kwargs):
+    if name == 'o4a-strong-unif-tilts':
+        if path is None:
+            path = os.path.abspath('./parameters/o4a-strong-maxl.json')
+
+        print(
+            'Loading mass, redshift and spin magnitude hyperparameters from'
+            f'{path}...'
+        )
+        with open(path, 'r') as f:
+            parameters = json.loads(f.read())
+
+        for key in list(parameters.keys()):
+            if key in ['mu_spin', 'sigma_spin', 'xi_spin']:
+                parameters.pop(key)
+
+        parameters.update(kwargs)
+
+        if outdir is not None:
+            with open(f'{outdir}/parameters.json', 'w') as f:
+                f.write(json.dumps(parameters, indent=4, sort_keys=False))
+
+        return parameters
+
+
+def get_inj_priors(name, parameters):
     inj_priors = bilby.gw.prior.BBHPriorDict(dict(
         dec=Cosine(name='dec'),
         ra=Uniform(
@@ -81,35 +139,76 @@ def get_inj_priors(name, **kwargs):
         phi_jl=Uniform(
             name='phi_jl', minimum=0, maximum=2 * np.pi, boundary='periodic'
         ),
+        geocent_time=Uniform(
+            name='geocent_time',
+            minimum=1126259642.413,
+            maximum=1126259642.413 + 86_400
+        )
     ))
 
-    if name == 'gwtc4_bpl2p_plz_trunc-norm-spin_unif-tilts':
-        ct_low = kwargs.get('cos_tilt_min', -1)
-        ct_high = kwargs.get('cos_tilt_max', 1)
+    if name == 'o4a-strong-unif-tilts':
+        ct_low, ct_high = parameters['cos_tilt_min'], parameters['cos_tilt_max']
 
         inj_priors['cos_tilt_1'] = Uniform(ct_low, ct_high, name='cos_tilt_1')
         inj_priors['cos_tilt_2'] = Uniform(ct_low, ct_high, name='cos_tilt_2')
 
-        mu_chi = # TODO
-        sigma_chi = # TODO
+        mu_chi = parameters['mu_chi']
+        sigma_chi = parameters['sigma_chi']
         mags = np.linspace(0, 1, 500)
         pchi = truncnorm(mags, mu_chi, sigma_chi, high=1, low=0)
 
         chi_prior = Interped(
-            mags, pchi, minimum=min(mags), maximum=max(mags), name='chi'
+            mags,
+            pchi,
+            minimum=min(mags), 
+            maximum=max(mags),
+            name='chi'
         )
 
         inj_priors['a_1'] = chi_prior
         inj_priors['a_2'] = chi_prior
 
-        z_model = PowerLawRedshift(z_max=# TODO)
-        zs = z_model.zs
-        z_lambda = # TODO
-        pz = z_model.probability(dict(redshift=zs), lamb=z_lambda)
+        z_max = parameters['z_max']
+        zs = np.linspace(1e-5, z_max, 1000)
+        pz = np.exp(log_powerlaw_redshift(
+            dict(redshift=zs),
+            parameters
+        ))
         z_prior = Interped(
-            zs, np.array(pz), minimum=min(zs), maximum=max(zs), name='redshift'
+            zs,
+            np.array(pz),
+            minimum=min(zs),
+            maximum=max(zs),
+            name='redshift'
         )
         inj_priors['redshift'] = z_prior
+
+        m1s = np.linspace(3, 300, 1_000)
+        p_m1 = np.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass(
+            dict(mass_1=m1s),
+            alpha_1=parameters['alpha_1'],
+            alpha_2=parameters['alpha_2'],
+            mmin=parameters['mmin'],
+            break_mass=parameters['break_mass'],
+            delta_m_1=parameters['delta_m_1'],
+            lam_fractions=(
+                parameters['lam_0'], parameters['lam_1'], parameters['lam_2']
+            ),
+            mpp_1=parameters['mpp_1'],
+            sigpp_1=parameters['sigpp_1'],
+            mpp_2=parameters['mpp_2'],
+            sigpp_2=parameters['sigpp_2'],
+            mmax=300.0,
+            gaussian_mass_maximum=100.0
+        ))
+        m1_prior = Interped(
+            m1s,
+            p_m1,
+            minimum=min(m1s),
+            maximum=max(m1s),
+            name='mass_1_source'
+        )
+        inj_priors['mass_1_source'] = m1_prior
 
     else:
         raise NotImplementedError(f'Model {name} not implemented!')
@@ -126,37 +225,15 @@ def main(
     add_noise=False,
     seed=21,
     make_fast=True,
-    model='gwtc4_bpl2p_plz_trunc-norm-spin_unif-tilts',
-    **kwargs    
+    model='o4a-strong-unif-tilts',
+    commit=None,
+    parameters=None,
+    **kwargs
 ):
-
-    mass_model = SinglePeakSmoothedMassDistribution(mmin=1, mmax=200)
-
-    mass_hyperparameters = dict(
-        alpha=3.4,
-        mmin=5,
-        mmax=87,
-        lam=0.04,
-        mpp=34,
-        sigpp=3.6,
-        delta_m=4.8,
-        beta=1.1
+    parameters = get_parameters(
+        model, path=parameters, outdir=outdir, **kwargs
     )
-    mass_hyperparameters.update(mass_kwargs)
-    print(f'using pl+p mass model hyperparameters: {mass_hyperparameters}')
-
-    m1s = mass_model.m1s
-    pm1 = mass_model.p_m1(
-        dict(mass_1=m1s),
-        **{
-            k : v for k, v in mass_hyperparameters.items()
-            if k in ['alpha', 'mmin', 'mmax', 'lam', 'mpp', 'sigpp', 'delta_m']
-        }
-    )
-    m1_prior = Interped(
-        m1s, pm1, minimum=min(m1s), maximum=max(m1s), name='m1_source'
-    )
-    inj_priors['mass_1_source'] = m1_prior
+    inj_priors = get_inj_priors(model, parameters)
 
     qmin = 0.10
     qs = np.linspace(qmin, 1, 500)
@@ -172,41 +249,24 @@ def main(
 
     pbar = tqdm(total=number)
     while i < number:
-        tc = 1126259642.413 + 128 * i
-
-        this_z = z_prior.sample()
-        this_m1 = m1_prior.sample()
-
-        pq = mass_model.p_q(
-            dict(
-                mass_1=this_m1 * np.ones(np.shape(qs)),
-                mass_ratio=qs
-            ),
-            **{
-                k : v for k, v in mass_hyperparameters.items()
-                if k in ['beta', 'mmin', 'delta_m']
-            }
-        )
-        q_prior = Interped(qs, pq, minimum=qmin, maximum=1, name='q')
-
-        this_q = q_prior.sample()
-        inj_priors['mass_ratio'] = q_prior
-
-        # TODO: best to put this first! then fill in the missing parameters..
-        # still need to add q, cos tilt, etc. priors to inj_priors
-        # so we can evaluate probabilities later
         injection_parameters = inj_priors.sample()
-        injection_parameters['geocent_time'] = tc
+        this_z = injection_parameters['redshift']
+        this_m1 = injection_parameters['mass_1_source']
 
-        # TODO: this is all becoming spaghetti
-        if model == 'plp_plz_beta-spin_isogauss-tilt-condq':
-            injection_parameters['cos_tilt_1'] = ct1
-            injection_parameters['cos_tilt_2'] = ct2
+        if model == 'o4a-strong-unif-tilts':
+            pq = np.exp(PowerlawPlusPeak_MassRatio(
+                dict(
+                    mass_1=this_m1 * np.ones(np.shape(qs)),
+                    mass_ratio=qs
+                ),
+                slope=parameters['beta'],
+                minimum=parameters['mmin'],
+                delta_m=parameters['delta_m_1']
+            ))
+            q_prior = Interped(qs, pq, minimum=qmin, maximum=1, name='q')
+            injection_parameters['mass_ratio'] = q_prior.sample()
 
-        injection_parameters['redshift'] = this_z
-        injection_parameters['mass_1_source'] = this_m1
         injection_parameters['mass_1'] = this_m1 * (1 + this_z)
-        injection_parameters['mass_ratio'] = this_q
         injection_parameters['mass_2'] = (
             injection_parameters['mass_1']
             * injection_parameters['mass_ratio']
@@ -228,7 +288,7 @@ def main(
             waveform_arguments=dict(
                 reference_frequency=20,
                 minimum_frequency=flow,
-                waveform_approximant='IMRPhenomXP',
+                waveform_approximant='IMRPhenomXPHM',
                 PhenomXPrecVersion=104,
             ),
             parameter_conversion=convert_to_lal_binary_black_hole_parameters
@@ -384,64 +444,35 @@ def main(
         all_inj_list.append(injection_parameters)
         del waveform_generator
 
+    total_generated = int(len(all_inj_list))
+    all_injs = list_to_dict(all_inj_list)
+    det_injs = list_to_dict(inj_list)
+
     if sampleprior is False:
-        total_generated = int(len(all_inj_list))
         write_hdf5(
             f'{outdir}/detectable.hdf5',
-            pd.DataFrame(inj_list),
+            det_injs,
             total_generated,
             model,
             commit=commit
         )
         write_hdf5(
-            f'{outdir}/allinjs.hdf5',
-            pd.DataFrame(all_inj_list),
+            f'{outdir}/all.hdf5',
+            all_injs,
             total_generated,
             model,
             commit=commit
         )
     else:
-        # TODO: change to hdf5 as well
-        inj_df = pd.DataFrame(all_inj_list)
-        inj_df.to_csv(
-            os.path.join(outdir, 'priordraws.dat'),
-            index=False,
-            sep='\t'
+        write_hdf5(
+            f'{outdir}/prior.hdf5',
+            all_injs,
+            total_generated,
+            model,
+            commit=commit
         )
+
     print('done.')
-
-
-def read_config(args):
-    config = configparser.ConfigParser()
-    config.read(args.config)
-    arrayid = args.arrayid
-
-    outdir = config.get('job', 'outdir')
-
-    ninj = config.getint('options', 'ninj', fallback=1000)
-    sampleprior = config.getboolean('options', 'sampleprior', fallback=False)
-    snr_threshold = config.getfloat('options', 'snr-threshold', fallback=11)
-    add_noise = config.getboolean('options', 'add-noise', fallback=True)
-
-    seed = literal_eval(config.get('seed', 'seed'))
-    if isinstance(seed, tuple):
-        seed = range(*seed)[arrayid]
-    elif isinstance(seed, list):
-        seed = seed[arrayid]
-
-    model = config.get(
-        'draw-population',
-        'model',
-        fallback='plp_plz_unif-spins_iso-tilts'
-    )
-    mass_kwargs = literal_eval(
-        config.get('draw-population', 'mass-kwargs', fallback='{}')
-    )
-
-    return (
-        outdir, ninj, sampleprior, snr_threshold, add_noise, seed,
-        model, mass_kwargs
-    )
 
 
 def concat(outdir, all=False):
@@ -561,19 +592,21 @@ def mix(models, injections):
     #new_injections['total_generated'] = 
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--config', type=str)
-parser.add_argument('--arrayid', type=int, default=0)
-
 if __name__ == '__main__':
     commit_hash = get_git_revision_short_hash()
     print(f'using: {commit_hash}')
 
-    args = parser.parse_args()
     (
-        outdir, ninj, sampleprior, snr_threshold, add_noise, seed,
-        model, mass_kwargs
-    ) = read_config(args)
+        outdir,
+        ninj,
+        sampleprior,
+        snr_threshold,
+        add_noise,
+        seed,
+        model,
+        parameters,
+        kwargs
+    ) = parse_args()
 
     outdir = f'{outdir}/{seed}'
     print(f'will save injections to {outdir}')
@@ -599,8 +632,9 @@ if __name__ == '__main__':
             sampleprior=sampleprior,
             add_noise=add_noise,
             seed=seed,
-            mass_kwargs=mass_kwargs,
             make_fast=True,
             model=model,
-            commit=commit_hash
+            commit=commit_hash,
+            parameters=parameters,
+            **kwargs
         )
