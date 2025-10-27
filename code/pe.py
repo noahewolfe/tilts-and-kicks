@@ -10,8 +10,8 @@ from shutil import move
 from copy import deepcopy
 
 import h5py
+import h5ify
 import numpy as np
-import pandas as pd
 from tqdm import trange
 
 import bilby
@@ -24,7 +24,7 @@ from bilby.gw.source import (
 from bilby.gw.conversion import convert_to_lal_binary_black_hole_parameters
 from bilby.gw.likelihood import RelativeBinningGravitationalWaveTransient
 
-from bilby_utils import get_network
+from bilby_util import get_network
 
 from util import get_git_revision_short_hash, next_power_of_2
 
@@ -97,30 +97,29 @@ def digest_args(args):
     reference_frequency = 20
 
     catalog_ext = os.path.splitext(catalog_path)[1]
-    if catalog_ext == '.dat':
-        catalog = pd.read_csv(catalog_path, sep='\t')
-    elif catalog_ext == '.hdf5':
-        catalog = pd.read_hdf(catalog_path, 'detectable')
+    if catalog_ext == '.hdf5':
+        catalog = h5ify.load(catalog_path)
+    else:
+        raise NotImplementedError(f'catalog of type {catalog_ext}')
 
-    # this preserves dtype for ints,
-    # whereas catalog.iloc[event_index].to_dict() does not
-    # ... if the file was originally saved s.t. the data_seed is an int
-    noise_seed = catalog['data_seed'].iloc[event_index]
+    noise_seed = catalog['data_seed'][event_index]
 
-    event = catalog.iloc[event_index]
-    injection_parameters = {
-        k : event.get(k)
-        for k in parameter_keys + ['redshift', 'mass_1', 'mass_2']
-    }
-
-    redshift = injection_parameters.pop('redshift')
-    if injection_parameters['luminosity_distance'] is None:
-        injection_parameters['luminosity_distance'] = (
-            bilby.gw.conversion.redshift_to_luminosity_distance(
-                redshift,
-                cosmology='Planck15'
-            )
-        )
+    injection_parameters = {}
+    for k in parameter_keys + ['mass_1', 'mass_2']:
+        if k == 'luminosity_distance':
+            if k not in catalog.keys():
+                if 'redshift' not in catalog.keys():
+                    raise ValueError(
+                        'luminosity distance nor redshift in catalog!! :('
+                    )
+                injection_parameters['luminosity_distance'] = (
+                    bilby.gw.conversion.redshift_to_luminosity_distance(
+                        catalog['redshift'][event_index],
+                        cosmology='Planck15'
+                    )
+                )
+        else:
+            injection_parameters[k] = catalog[k][event_index]
 
     true_m1 = injection_parameters.pop('mass_1')
     true_m2 = injection_parameters.pop('mass_2')
@@ -212,7 +211,6 @@ def digest_args(args):
         injection_parameters['luminosity_distance'] * 4.2 + delta_dl_bound
     )
 
-    injection_parameters['fiducial'] = 1
     fiducial_parameters = deepcopy(injection_parameters)
 
     likelihood_kwargs = dict()
@@ -245,8 +243,8 @@ def digest_args(args):
         if 'geocent_time' in priors.keys():
             del priors['geocent_time']
 
-    optimal_network_snr = event.get('network_optimal_snr')
-    matched_filter_network_snr = event.get('network_matched_filter_snr')
+    optimal_network_snr = catalog['network_optimal_snr'][event_index]
+    matched_filter_network_snr = catalog['network_matched_filter_snr'][event_index]
 
     rerun = rerun_with_wider_priors
 
@@ -267,7 +265,8 @@ def get_waveform_generator(
         waveform_approximant=waveform_approximant,
         reference_frequency=reference_frequency,
         minimum_frequency=minimum_frequency,
-        PhenomXPrecVersion=phenomxprecversion
+        PhenomXPrecVersion=phenomxprecversion,
+        fiducial=1
     )
 
     print(f'waveform_arguments = {waveform_arguments}')
@@ -412,11 +411,6 @@ def combine(outdir, exclude=[], append=False):
                 )
 
 
-precessing_waveforms = [
-    'IMRPhenomPv2', 'IMRPhenomXP', 'IMRPhenomXPHM'
-]
-precession_only_keys = ['tilt_1', 'tilt_2', 'phi_jl', 'phi_12']
-
 if __name__ == '__main__':
     print(f'using: {get_git_revision_short_hash()}')
 
@@ -446,10 +440,9 @@ if __name__ == '__main__':
     ) = digest_args(args)
 
     likelihood_class = RelativeBinningGravitationalWaveTransient
-    waveform_approximant = 'IMRPhenomXP'
+    waveform_approximant = 'IMRPhenomXPHM'
     phenomxprecversion = 104
 
-    outdir = f'{outdir}/{event_index}'
     if rerun:
         outdir += '_rerun'
     if outdir_extras is not None:
@@ -617,9 +610,6 @@ if __name__ == '__main__':
         resume=True
     )
 
-    if 'fiducial' in injection_parameters.keys():
-        injection_parameters.pop('fiducial')
-
     result.plot_corner()
 
     if isinstance(
@@ -628,18 +618,20 @@ if __name__ == '__main__':
     ):
         print('main run done-- reweighting!')
 
-        # \/ lifted from https://git.ligo.org/lscsoft/bilby/-/blob/c62e678518c89f2a8e7c97a6591089d92c056845/examples/gw_examples/injection_examples/relative_binning.py
+        alt_waveform_arguments = deepcopy(waveform_arguments)
+        del alt_waveform_arguments["frequency_bin_edges"]
+        del alt_waveform_arguments["fiducial"]
 
         alt_waveform_generator = bilby.gw.WaveformGenerator(
             duration=duration,
             sampling_frequency=sampling_frequency,
             frequency_domain_source_model=lal_binary_black_hole,
             parameter_conversion=convert_to_lal_binary_black_hole_parameters,
-            waveform_arguments=deepcopy(waveform_arguments),
+            waveform_arguments=alt_waveform_arguments
         )
         alt_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
             interferometers=ifos,
-            waveform_generator=alt_waveform_generator,
+            waveform_generator=alt_waveform_generator
         )
         likelihood.distance_marginalization = False
         weights = list()
@@ -652,10 +644,11 @@ if __name__ == '__main__':
                 - likelihood.log_likelihood_ratio()
             )
         weights = np.exp(weights)
+        efficiency = np.mean(weights)**2 / np.mean(weights**2) * 100
         print(
             f'''
             Reweighting efficiency is
-            {np.mean(weights)**2 / np.mean(weights**2) * 100:.5f}%'''
+            {efficiency:.5f}%'''
         )
         print(f'''
             Binned vs unbinned log Bayes factor is
@@ -681,3 +674,6 @@ if __name__ == '__main__':
             overwrite=False,
             gzip=False
         )
+
+        with open(f'{outdir}/eff.txt', 'r') as f:
+            f.write(f'{efficiency:.5f}')

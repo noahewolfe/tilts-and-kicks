@@ -2,8 +2,6 @@ import os
 import json
 import pickle
 import argparse
-import configparser
-from ast import literal_eval
 from copy import deepcopy
 
 import h5py
