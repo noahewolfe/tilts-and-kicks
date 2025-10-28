@@ -619,7 +619,8 @@ if __name__ == '__main__':
         print('main run done-- reweighting!')
 
         alt_waveform_arguments = deepcopy(waveform_arguments)
-        del alt_waveform_arguments["frequency_bin_edges"]
+        if 'frequency_bin_edges' in alt_waveform_arguments.keys():
+            del alt_waveform_arguments["frequency_bin_edges"]
         del alt_waveform_arguments["fiducial"]
 
         alt_waveform_generator = bilby.gw.WaveformGenerator(

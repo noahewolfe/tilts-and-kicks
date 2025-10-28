@@ -215,7 +215,56 @@ def get_inj_priors(name, parameters):
             name='mass_1_source'
         )
         inj_priors['mass_1_source'] = m1_prior
+    elif name == 'o4a-strong-unif-tilts-unif-mag':
+        ct_low, ct_high = parameters['cos_tilt_min'], parameters['cos_tilt_max']
 
+        inj_priors['cos_tilt_1'] = Uniform(ct_low, ct_high, name='cos_tilt_1')
+        inj_priors['cos_tilt_2'] = Uniform(ct_low, ct_high, name='cos_tilt_2')
+
+        inj_priors['a_1'] = Uniform(0, 1, name='a_1') 
+        inj_priors['a_2'] = Uniform(0, 1, name='a_2')
+
+        z_max = parameters['z_max']
+        zs = np.linspace(1e-5, z_max, 1000)
+        pz = np.exp(log_powerlaw_redshift(
+            dict(redshift=zs),
+            parameters
+        ))
+        z_prior = Interped(
+            zs,
+            np.array(pz),
+            minimum=min(zs),
+            maximum=max(zs),
+            name='redshift'
+        )
+        inj_priors['redshift'] = z_prior
+
+        m1s = np.linspace(3, 300, 1_000)
+        p_m1 = np.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass(
+            dict(mass_1=m1s),
+            alpha_1=parameters['alpha_1'],
+            alpha_2=parameters['alpha_2'],
+            mmin=parameters['mmin'],
+            break_mass=parameters['break_mass'],
+            delta_m_1=parameters['delta_m_1'],
+            lam_fractions=(
+                parameters['lam_0'], parameters['lam_1'], parameters['lam_2']
+            ),
+            mpp_1=parameters['mpp_1'],
+            sigpp_1=parameters['sigpp_1'],
+            mpp_2=parameters['mpp_2'],
+            sigpp_2=parameters['sigpp_2'],
+            mmax=300.0,
+            gaussian_mass_maximum=100.0
+        ))
+        m1_prior = Interped(
+            m1s,
+            p_m1,
+            minimum=min(m1s),
+            maximum=max(m1s),
+            name='mass_1_source'
+        )
+        inj_priors['mass_1_source'] = m1_prior
     else:
         raise NotImplementedError(f'Model {name} not implemented!')
 
