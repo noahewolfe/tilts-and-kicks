@@ -256,7 +256,7 @@ def digest_args(args):
         minimum_frequency, sampling_frequency, reference_frequency,
         network, likelihood_kwargs, nlive, naccept, bound, proposals,
         optimal_network_snr, matched_filter_network_snr, rerun, outdir_extras,
-        reweight
+        args.reweight
     )
 
 
