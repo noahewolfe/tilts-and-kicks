@@ -69,6 +69,8 @@ parser.add_argument('--prior-lowest-allowed-mchirp', type=float, default=3)
 
 parser.add_argument('--outdir-extras', type=str, default='')
 
+parser.add_argument('--reweight', action='store_true')
+
 
 def digest_args(args):
     outdir = args.outdir
@@ -253,7 +255,8 @@ def digest_args(args):
         noise_seed, duration,
         minimum_frequency, sampling_frequency, reference_frequency,
         network, likelihood_kwargs, nlive, naccept, bound, proposals,
-        optimal_network_snr, matched_filter_network_snr, rerun, outdir_extras
+        optimal_network_snr, matched_filter_network_snr, rerun, outdir_extras,
+        reweight
     )
 
 
@@ -436,7 +439,8 @@ if __name__ == '__main__':
         optimal_network_snr,
         matched_filter_network_snr,
         rerun,
-        outdir_extras
+        outdir_extras,
+        reweight
     ) = digest_args(args)
 
     likelihood_class = RelativeBinningGravitationalWaveTransient
@@ -612,7 +616,7 @@ if __name__ == '__main__':
 
     result.plot_corner()
 
-    if isinstance(
+    if reweight and isinstance(
         likelihood,
         bilby.gw.likelihood.RelativeBinningGravitationalWaveTransient
     ):
