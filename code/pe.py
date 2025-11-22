@@ -70,7 +70,7 @@ parser.add_argument('--prior-lowest-allowed-mchirp', type=float, default=3)
 parser.add_argument('--outdir-extras', type=str, default='')
 
 parser.add_argument('--reweight', action='store_true')
-
+parser.add_argument('--waveform', default='xp')
 
 def digest_args(args):
     outdir = args.outdir
@@ -250,13 +250,19 @@ def digest_args(args):
 
     rerun = rerun_with_wider_priors
 
+    waveform = args.waveform_approximant
+    if waveform == 'xp':
+        waveform = 'IMRPhenomXP'
+    elif waveform == 'xphm':
+        waveform = 'IMRPhenomXPHM'
+
     return (
         outdir, npool, catalog_path, event_index, priors, injection_parameters,
         noise_seed, duration,
         minimum_frequency, sampling_frequency, reference_frequency,
         network, likelihood_kwargs, nlive, naccept, bound, proposals,
         optimal_network_snr, matched_filter_network_snr, rerun, outdir_extras,
-        args.reweight
+        args.reweight, waveform
     )
 
 
@@ -440,11 +446,11 @@ if __name__ == '__main__':
         matched_filter_network_snr,
         rerun,
         outdir_extras,
-        reweight
+        reweight,
+        waveform_approximant
     ) = digest_args(args)
 
     likelihood_class = RelativeBinningGravitationalWaveTransient
-    waveform_approximant = 'IMRPhenomXPHM'
     phenomxprecversion = 104
 
     if rerun:

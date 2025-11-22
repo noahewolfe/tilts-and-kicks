@@ -283,6 +283,8 @@ def main(
     model='o4a-strong-unif-tilts',
     commit=None,
     parameters=None,
+    injection_waveform_approximant='IMRPhenomXPHM',
+    recovery_waveform_approximant='IMRPhenomXP',
     **kwargs
 ):
     parameters = get_parameters(
@@ -348,7 +350,7 @@ def main(
             waveform_arguments=dict(
                 reference_frequency=20,
                 minimum_frequency=flow,
-                waveform_approximant='IMRPhenomXPHM',
+                waveform_approximant=waveform_approximant,
                 PhenomXPrecVersion=104,
             ),
             parameter_conversion=convert_to_lal_binary_black_hole_parameters
