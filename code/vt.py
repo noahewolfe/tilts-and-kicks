@@ -330,9 +330,9 @@ def fill_parameters(injection_parameters, priors):
     return injection_parameters
 
 
-def estimate_duration(injection_parameters):
+def estimate_duration(injection_parameters, minimum_frequency):
     raw_duration = bilby.gw.utils.calculate_time_to_merger(
-        flow,
+        minimum_frequency,
         injection_parameters['mass_1'],
         injection_parameters['mass_2']
     )
@@ -430,7 +430,10 @@ def main(
     pbar = tqdm(total=number)
     while i < number:
         injection_parameters, inj_priors = draw_injection(model, deepcopy(priors))
-        raw_duration, duration = estimate_duration(injection_parameters)
+        raw_duration, duration = estimate_duration(
+            injection_parameters,
+            minimum_frequency
+        )
 
         data_seed = np.random.randint(1e17 + seed)
         start_time = injection_parameters['geocent_time'] + 2 - duration
