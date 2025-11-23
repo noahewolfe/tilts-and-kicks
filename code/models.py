@@ -3,7 +3,6 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.scipy.special as jsp
-import jax.scipy.stats as jss
 
 import wcosmo
 from astropy import units
@@ -202,6 +201,121 @@ def iso_gauss_spin_tilt(dataset, xi_spin, sigma_spin, mu_spin=1):
             * truncnorm(cos_tilt_2, mu_spin, sigma_spin, high=1, low=-1)
         )
     )
+
+
+def BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+    data,
+    alpha_1,
+    alpha_2,
+    mlow_1,
+    break_mass,
+    delta_m_1,
+    lam_fractions,
+    mpp_1,
+    sigpp_1,
+    mpp_2,
+    sigpp_2,
+    mmax=300.0,
+    gaussian_mass_maximum=100.0
+):
+    """
+    Primary mass distribution: broken power-law + two Gaussian peaks.
+
+    Implements the default GWTC-4.0 primary mass population model:
+    a mixture of (1) a smoothed broken power-law, and (2–3) two
+    truncated Gaussians representing additional features.
+
+    Parameters
+    ----------
+    data : dict or jnp.ndarray
+        Either a dict with key 'mass_1' or 'log_mass_1',
+        or a direct array of primary masses.
+    alpha_1 : float
+        Low-mass slope of the power-law.
+    alpha_2 : float
+        High-mass slope of the power-law.
+    mmin : float
+        Minimum primary mass cutoff.
+    break_mass : float
+        Break mass separating the two slopes.
+    delta_m_1 : float
+        Smoothing width at the low-mass cutoff.
+    lam_fractions : tuple of floats
+        Mixture fractions (lam_0, lam_1, lam_2) for
+        {power-law, first Gaussian, second Gaussian}.
+    mpp_1 : float
+        Mean of the first Gaussian peak.
+    sigpp_1 : float
+        Std. deviation of the first Gaussian peak.
+    mpp_2 : float
+        Mean of the second Gaussian peak.
+    sigpp_2 : float
+        Std. deviation of the second Gaussian peak.
+    mmax : float, optional
+        Maximum primary mass cutoff (default 300).
+    gaussian_mass_maximum : float, optional
+        Upper truncation for Gaussian peaks (default 100).
+
+    Returns
+    -------
+    jnp.ndarray
+        Log-probability density of the normalized mass distribution.
+    """
+
+    from pixelpop.models.gwpop_models import BrokenPowerLaw
+    from pixelpop.models.gwpop_models import m_smoother
+    from pixelpop.models.gwpop_models import trunc_gaussian
+
+    import jax.scipy.special as scs
+
+    isLogMass = True
+    if isinstance(data, dict):
+        try:
+            m1 = jnp.exp(data['log_mass_1'])
+        except KeyError:
+            isLogMass = False
+            m1 = data['mass_1']
+    else:
+        isLogMass = False
+        m1 = data
+
+    lam_0, lam_1, lam_2 = lam_fractions
+    break_fraction = (break_mass - mlow_1) / (mmax - mlow_1)
+
+    def shape(m1):
+        p_pow = BrokenPowerLaw(
+            m1, -alpha_1, -alpha_2, mlow_1, mmax, break_fraction
+        )
+        p_norm1 = trunc_gaussian(
+            m1, mpp_1, sigpp_1, mlow_1, gaussian_mass_maximum
+        )
+        p_norm2 = trunc_gaussian(
+            m1, mpp_2, sigpp_2, mlow_1, gaussian_mass_maximum
+        )
+
+        pm1 = scs.logsumexp(jnp.array([
+            jnp.log(lam_0) + p_pow,
+            jnp.log(lam_1) + p_norm1,
+            jnp.log(lam_2) + p_norm2
+        ]), axis=0)
+
+        pm1 += m_smoother(m1, mlow_1, delta_m_1)
+
+        return pm1
+
+    log_prob = shape(m1)
+
+    xs = jnp.linspace(3, 300, 2_000)
+    dx = xs[1] - xs[0]
+    ys = shape(xs)
+    norm = scs.logsumexp(ys) + jnp.log(dx)  # simple Riemann rule.
+
+    log_prob -= norm
+
+    if isLogMass:  # include jacobian
+        log_prob = log_prob + data['log_mass_1']
+
+    return log_prob
 
 
 def bplm1q_plz_truncnormmag(

@@ -3,15 +3,20 @@
     "alpha_2": 4.16,
     "beta": 1.78, 
     "break_mass": 32.51,
-    "delta_m_1": 10,
+    "delta_m_1": 2.51,
     "lam_0": 0.11,
     "lam_1": 0.88,
+    "lam_2": 0.01,
     "lamb": 2.61,
-    "mmin": 3,
+    "mlow_1": 3.56,
     "mmax": 300.0,
     "mpp_1": 9.2,
     "mpp_2": 33.83,
+    "mu_chi": 0.1,
+    "sigma_chi": 0.34,
     "sigpp_1": 0.79,
     "sigpp_2": 2.65,
-    "z_max": 1.45
+    "z_max": 1.45,
+    "cos_tilt_min": -1.0,
+    "cos_tilt_max": 1.0
 }

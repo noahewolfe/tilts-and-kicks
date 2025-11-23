@@ -24,10 +24,10 @@ from bilby.gw.conversion import convert_to_lal_binary_black_hole_parameters
 from bilby.gw.conversion import generate_all_bbh_parameters
 
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
-from pixelpop.models.gwpop_models import BrokenPowerlawPlusTwoPeaks_PrimaryMass
 
 from models import truncnorm
 from models import log_powerlaw_redshift
+from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
 
 from util import list_to_dict
 from util import write_config
@@ -43,38 +43,39 @@ parser.add_argument('--sample-prior', action='store_true')
 parser.add_argument('--snr-threshold', type=int, default=11)
 parser.add_argument('--zero-noise', action='store_true')
 parser.add_argument('--seed', type=int)
-parser.add_argument('--model', type=str, default='o4a-strong-unif-tilts')
+parser.add_argument('--model', type=json.loads, default='{}')
 parser.add_argument('--parameters', default=None)
 parser.add_argument('--extra-kwargs', type=json.loads, default='{}')
+parser.add_argument(
+    '--injection-waveform-approximant', type=str, default='IMRPhenomXPHM'
+)
+parser.add_argument(
+    '--recovery-waveform-approximant', type=str, default='IMRPhenomXP'
+)
 
 
 def parse_args():
     args = parser.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
     write_config(args)
-    add_noise = not args.zero_noise
     return (
         args.outdir,
         args.ninj,
         args.sample_prior,
         args.snr_threshold,
-        add_noise,
+        args.zero_noise,
         args.seed,
         args.model,
         args.parameters,
-        args.extra_kwargs
+        args.extra_kwargs,
+        args.injection_waveform_approximant,
+        args.recovery_waveform_approximant
     )
 
 
-def write_hdf5(path, dic, total_generated, model, commit=None):
-    # clean data types in df
-    #for key in dic.keys():
-    #    if df.dtypes[key] == object:
-    #        df[key] = [v.item() for v in df[key].values]
-
+def write_hdf5(path, dic, total_generated, commit=None):
     with h5py.File(path, 'w') as f:
         f.attrs['total_generated'] = total_generated
-        f.attrs['model'] = model
         if commit is not None:
             f.attrs['commit'] = commit
 
@@ -92,42 +93,23 @@ def load_hdf5_as_dict(path):
     return total_generated, data
 
 
-def load_hdf5_as_df(path):
-    total_generated, data = load_hdf5_as_dict(path)
-    return total_generated, pd.DataFrame(data)
+def get_parameters(path=None, outdir=None, **kwargs):
+    parameters = dict()
 
-
-def get_parameters(name, path=None, outdir=None, **kwargs):
-    if name == 'o4a-strong-unif-tilts':
-        if path is None:
-            path = os.path.abspath('./parameters/o4a-strong-maxl.json')
-
-        print(
-            'Loading mass, redshift and spin magnitude hyperparameters from'
-            f'{path}...'
-        )
+    if path is not None:
         with open(path, 'r') as f:
-            parameters = json.loads(f.read())
+            parameters.update(json.loads(f.read()))
 
-        for key in list(parameters.keys()):
-            if key in ['mu_spin', 'sigma_spin', 'xi_spin']:
-                parameters.pop(key)
+    parameters.update(kwargs)
 
-        if 'lam_2' not in parameters.keys():
-            parameters['lam_2'] = np.round(1 - parameters['lam_0'] - parameters['lam_1'], decimals=2)
-
-        assert (parameters['lam_0'] + parameters['lam_1'] + parameters['lam_2']) == 1.0
-
-        parameters.update(kwargs)
-
-        if outdir is not None:
-            with open(f'{outdir}/parameters.json', 'w') as f:
-                f.write(json.dumps(parameters, indent=4, sort_keys=False))
+    if outdir is not None:
+        with open(f'{outdir}/parameters.json', 'w') as f:
+            f.write(json.dumps(parameters, indent=4, sort_keys=False))
 
         return parameters
 
 
-def get_inj_priors(name, parameters):
+def get_inj_priors(model, parameters):
     inj_priors = bilby.core.prior.PriorDict(dict(
         dec=Cosine(name='dec'),
         ra=Uniform(
@@ -153,12 +135,18 @@ def get_inj_priors(name, parameters):
         )
     ))
 
-    if name == 'o4a-strong-unif-tilts':
-        ct_low, ct_high = parameters['cos_tilt_min'], parameters['cos_tilt_max']
+    if model['cos_tilt_1'] == 'uniform' and model['cos_tilt_2'] == 'uniform':
+        ct_low = parameters['cos_tilt_min']
+        ct_high = parameters['cos_tilt_max']
 
         inj_priors['cos_tilt_1'] = Uniform(ct_low, ct_high, name='cos_tilt_1')
         inj_priors['cos_tilt_2'] = Uniform(ct_low, ct_high, name='cos_tilt_2')
+    else:
+        raise ValueError(
+            f"unknown spin models {model['cos_tilt_1'], model['cos_tilt_2']}"
+        )
 
+    if model['a_1'] == 'iid_truncnorm' and model['a_2'] == 'iid_truncnorm':
         mu_chi = parameters['mu_chi']
         sigma_chi = parameters['sigma_chi']
         mags = np.linspace(0, 1, 500)
@@ -167,64 +155,19 @@ def get_inj_priors(name, parameters):
         chi_prior = Interped(
             mags,
             pchi,
-            minimum=min(mags), 
+            minimum=min(mags),
             maximum=max(mags),
             name='chi'
         )
-
         inj_priors['a_1'] = chi_prior
         inj_priors['a_2'] = chi_prior
-
-        z_max = parameters['z_max']
-        zs = np.linspace(1e-5, z_max, 1000)
-        pz = np.exp(log_powerlaw_redshift(
-            dict(redshift=zs),
-            parameters
-        ))
-        z_prior = Interped(
-            zs,
-            np.array(pz),
-            minimum=min(zs),
-            maximum=max(zs),
-            name='redshift'
-        )
-        inj_priors['redshift'] = z_prior
-
-        m1s = np.linspace(3, 300, 1_000)
-        p_m1 = np.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass(
-            dict(mass_1=m1s),
-            alpha_1=parameters['alpha_1'],
-            alpha_2=parameters['alpha_2'],
-            mmin=parameters['mmin'],
-            break_mass=parameters['break_mass'],
-            delta_m_1=parameters['delta_m_1'],
-            lam_fractions=(
-                parameters['lam_0'], parameters['lam_1'], parameters['lam_2']
-            ),
-            mpp_1=parameters['mpp_1'],
-            sigpp_1=parameters['sigpp_1'],
-            mpp_2=parameters['mpp_2'],
-            sigpp_2=parameters['sigpp_2'],
-            mmax=300.0,
-            gaussian_mass_maximum=100.0
-        ))
-        m1_prior = Interped(
-            m1s,
-            p_m1,
-            minimum=min(m1s),
-            maximum=max(m1s),
-            name='mass_1_source'
-        )
-        inj_priors['mass_1_source'] = m1_prior
-    elif name == 'o4a-strong-unif-tilts-unif-mag':
-        ct_low, ct_high = parameters['cos_tilt_min'], parameters['cos_tilt_max']
-
-        inj_priors['cos_tilt_1'] = Uniform(ct_low, ct_high, name='cos_tilt_1')
-        inj_priors['cos_tilt_2'] = Uniform(ct_low, ct_high, name='cos_tilt_2')
-
-        inj_priors['a_1'] = Uniform(0, 1, name='a_1') 
+    elif model['a_1'] == 'uniform' and model['a_2'] == 'uniform':
+        inj_priors['a_1'] = Uniform(0, 1, name='a_1')
         inj_priors['a_2'] = Uniform(0, 1, name='a_2')
+    else:
+        raise ValueError(f"unknown spin models {model['a_1'], model['a_2']}")
 
+    if model['redshift'] == 'powerlaw':
         z_max = parameters['z_max']
         zs = np.linspace(1e-5, z_max, 1000)
         pz = np.exp(log_powerlaw_redshift(
@@ -239,13 +182,16 @@ def get_inj_priors(name, parameters):
             name='redshift'
         )
         inj_priors['redshift'] = z_prior
+    else:
+        raise ValueError(f"unknown redshift model {model['redshift']}")
 
+    if model['mass_1_source'] == 'highpass_broken_powerlaw_two_peaks':
         m1s = np.linspace(3, 300, 1_000)
-        p_m1 = np.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass(
+        p_m1 = np.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
             dict(mass_1=m1s),
             alpha_1=parameters['alpha_1'],
             alpha_2=parameters['alpha_2'],
-            mmin=parameters['mmin'],
+            mlow_1=parameters['mlow_1'],
             break_mass=parameters['break_mass'],
             delta_m_1=parameters['delta_m_1'],
             lam_fractions=(
@@ -267,43 +213,21 @@ def get_inj_priors(name, parameters):
         )
         inj_priors['mass_1_source'] = m1_prior
     else:
-        raise NotImplementedError(f'Model {name} not implemented!')
+        raise ValueError(
+            f"unknown mass_1_source model {model['mass_1_source']}"
+        )
 
     return inj_priors
-
-
-
-def draw_injection(model, priors):
-    qmin = 0.10
-    qs = np.linspace(qmin, 1, 500)
-
-    injection_parameters = priors.sample()
-    this_z = injection_parameters['redshift']
-    this_m1 = injection_parameters['mass_1_source']
-
-    if model == 'o4a-strong-unif-tilts':
-        @jax.jit
-        def calc_p_q(this_m1):
-            return jnp.exp(PowerlawPlusPeak_MassRatio(
-                dict(
-                    mass_1=this_m1 * jnp.ones(jnp.shape(qs)),
-                    mass_ratio=qs
-                ),
-                slope=parameters['beta'],
-                minimum=parameters['mmin'],
-                delta_m=parameters['delta_m_1']
-            ))
-        pq = calc_p_q(this_m1) 
-        q_prior = Interped(qs, pq, minimum=qmin, maximum=1, name='q')
-        injection_parameters['mass_ratio'] = q_prior.sample()
-        priors['mass_ratio'] = q_prior
-
-    return injection_parameters, priors
 
 
 def fill_parameters(injection_parameters, priors):
     """ fill in some extra parameters and log_prior column """
     injection_parameters = generate_all_bbh_parameters(injection_parameters)
+    # pop nuisance parameters that bilby adds for some reason
+    for k in [
+        'reference_frequency', 'waveform_approximant', 'minimum_frequency'
+    ]:
+        injection_parameters.pop(k)
 
     for key in [
         'mass_1_source',
@@ -314,13 +238,13 @@ def fill_parameters(injection_parameters, priors):
         'cos_tilt_1',
         'cos_tilt_2'
     ]:
-        injection_parameters[f'prior_{key}'] = inj_priors[key].prob(
+        injection_parameters[f'prior_{key}'] = priors[key].prob(
             injection_parameters[key]
         )
 
     ln_prior = 0
     for key in [
-        'm1s', 'mass_ratio', 'redshift', 'a_1', 'a_2', 'cos_tilt_1',
+        'mass_1_source', 'mass_ratio', 'redshift', 'a_1', 'a_2', 'cos_tilt_1',
         'cos_tilt_2'
     ]:
         ln_prior += np.log(injection_parameters[f'prior_{key}'])
@@ -328,6 +252,55 @@ def fill_parameters(injection_parameters, priors):
     injection_parameters['log_prior'] = ln_prior
 
     return injection_parameters
+
+
+def draw_injection(priors, model, parameters):
+    qmin = 0.10
+    qs = np.linspace(qmin, 1, 500)
+
+    injection_parameters = priors.sample()
+    this_m1 = injection_parameters['mass_1_source']
+
+    if model['mass_ratio'] == 'highpass_powerlaw':
+        if 'mmin' in parameters.keys():
+            mmin = parameters['mmin']
+        elif 'mlow_1' in parameters.keys():
+            mmin = parameters['mlow_1']
+        else:
+            raise ValueError(
+                'Could not identify population model parameter'
+                'corresponding to minimum mass for mass_ratio distribution'
+            )
+
+        if 'delta_m' in parameters.keys():
+            delta_m = parameters['delta_m']
+        elif 'delta_m_1' in parameters.keys():
+            delta_m = parameters['delta_m_1']
+        else:
+            raise ValueError(
+                'Could not identify population model parameter'
+                'corresponding to highpass taper of mass_ratio distribution'
+            )
+
+        @jax.jit
+        def calc_p_q(this_m1):
+            return jnp.exp(PowerlawPlusPeak_MassRatio(
+                dict(
+                    mass_1=this_m1 * jnp.ones(jnp.shape(qs)),
+                    mass_ratio=qs
+                ),
+                slope=parameters['beta'],
+                minimum=mmin,
+                delta_m=delta_m
+            ))
+        pq = calc_p_q(this_m1)
+        q_prior = Interped(qs, pq, minimum=qmin, maximum=1, name='q')
+        injection_parameters['mass_ratio'] = q_prior.sample()
+        priors['mass_ratio'] = q_prior
+    else:
+        raise ValueError(f"Unknown mass_ratio model {model['mass_ratio']}")
+
+    return fill_parameters(injection_parameters, priors)
 
 
 def estimate_duration(injection_parameters, minimum_frequency):
@@ -342,19 +315,23 @@ def estimate_duration(injection_parameters, minimum_frequency):
     return raw_duration, duration
 
 
-def is_hopeless(intrange_net, injection_parameters):
+def is_hopeless(intrange_net, injection_parameters, make_fast=True):
     """ determine if an injection is hopeless """
     hopeless = False
-    if mtot_source < 160:
+    mtot_src = injection_parameters['total_mass_source']
+    if mtot_src < 160:
         try:
-            max_z = float(intrange_net(mtot_source))
+            max_z = float(intrange_net(mtot_src))
         except ValueError as e:
             # if the total mass is outside the interpolation range
             # we just go ahead and compute SNRs. not the most
             # efficient; TODO
             if (
                 len(e.args) > 0
-                and "x_new is below the interpolation range's minimum value" in e.args[0]
+                and (
+                    "x_new is below the interpolation range's minimum value"
+                    in e.args[0]
+                )
             ):
                 max_z = np.inf
             else:
@@ -408,17 +385,30 @@ def main(
     zero_noise=False,
     seed=21,
     make_fast=True,
-    model='o4a-strong-unif-tilts',
+    model=dict(),
     commit=None,
     parameters=None,
     injection_waveform_approximant='IMRPhenomXPHM',
     recovery_waveform_approximant='IMRPhenomXP',
     **kwargs
 ):
-    parameters = get_parameters(
-        model, path=parameters, outdir=outdir, **kwargs
+    parameters = get_parameters(path=parameters, outdir=outdir, **kwargs)
+
+    default_model = dict(
+        mass_1_source='highpass_broken_powerlaw_two_peaks',
+        mass_ratio='highpass_powerlaw',
+        redshift='powerlaw',
+        a_1='iid_truncnorm',
+        a_2='iid_truncnorm',
+        cos_tilt_1='uniform',
+        cos_tilt_2='uniform'
     )
-    priors = get_inj_priors(model, parameters)
+    default_model.update(model)
+
+    with open(f'{outdir}/model.json', 'w') as f:
+        f.write(json.dumps(default_model, indent=4, sort_keys=False))
+
+    priors = get_inj_priors(default_model, parameters)
 
     inj_list = []
     all_inj_list = []
@@ -429,7 +419,11 @@ def main(
 
     pbar = tqdm(total=number)
     while i < number:
-        injection_parameters, inj_priors = draw_injection(model, deepcopy(priors))
+        injection_parameters = draw_injection(
+            deepcopy(priors),
+            default_model,
+            parameters
+        )
         raw_duration, duration = estimate_duration(
             injection_parameters,
             minimum_frequency
@@ -448,12 +442,18 @@ def main(
             injection_parameters['network_optimal_snr'] = 0
             i += 1
             pbar.update(1)
-            all_inj_list.append(injection_parameters) 
+            all_inj_list.append(injection_parameters)
             continue
 
-        hopeless = is_hopeless(intrange_net, injection_parameters)
+        hopeless = is_hopeless(
+            intrange_net,
+            injection_parameters,
+            make_fast=make_fast
+        )
 
         if hopeless:
+            injection_parameters['injection_network_optimal_snr'] = 0
+            injection_parameters['injection_network_matched_filter_snr'] = 0
             injection_parameters['network_optimal_snr'] = 0
             injection_parameters['network_matched_filter_snr'] = 0
             all_inj_list.append(injection_parameters)
@@ -463,16 +463,16 @@ def main(
         if zero_noise:
             ifos.set_strain_data_from_zero_noise(
                 sampling_frequency=sampling_frequency,
-                duration=det_duration,
+                duration=duration,
                 start_time=start_time
             )
         else:
             bilby.core.utils.random.seed(data_seed)
             ifos.set_strain_data_from_power_spectral_densities(
                 sampling_frequency=sampling_frequency,
-                duration=det_duration,
+                duration=duration,
                 start_time=start_time
-            ) 
+            )
 
         inj_wavform_generator = get_waveform_generator(
             duration,
@@ -490,7 +490,7 @@ def main(
         try:
             ifos.inject_signal(
                 parameters=injection_parameters_without_m1_m2_src,
-                waveform_generator=waveform_generator
+                waveform_generator=inj_wavform_generator
             )
         except IndexError as e:
             print(injection_parameters_without_m1_m2_src)
@@ -510,24 +510,13 @@ def main(
             rho_mf_2
         )
 
-        if zero_noise:
-            if np.sqrt(rho_opt_2) >= opt_net_snr_thre:
-                inj_list.append(injection_parameters)
-                i += 1
-                pbar.update(1)
-        else:
-            if np.sqrt(rho_mf_2) >= opt_net_snr_thre:
-                inj_list.append(injection_parameters)
-                i += 1
-                pbar.update(1)
-
         if recovery_waveform_approximant != injection_waveform_approximant:
             injection_parameters_without_m1_m2_src = deepcopy(
                 injection_parameters
             )
             injection_parameters_without_m1_m2_src.pop('mass_1_source')
             injection_parameters_without_m1_m2_src.pop('mass_2_source')
-            
+
             rec_wavform_generator = get_waveform_generator(
                 duration,
                 sampling_frequency,
@@ -536,7 +525,7 @@ def main(
             )
 
             rec_polarizations = rec_wavform_generator.frequency_domain_strain(
-                injection_parameters_without_m1_m2_src 
+                injection_parameters_without_m1_m2_src
             )
 
             rho_opt_2 = 0
@@ -547,14 +536,27 @@ def main(
                     rec_polarizations, injection_parameters_without_m1_m2_src
                 )
                 rho_opt_2 += ifo.optimal_snr_squared(signal=signal_ifo).real
-                rho_mf_2 += np.abs(ifo.matched_filter_snr(signal=signal_ifo))**2
+                rho_mf_2 += np.abs(
+                    ifo.matched_filter_snr(signal=signal_ifo)
+                )**2
 
         injection_parameters['network_optimal_snr'] = np.sqrt(
             rho_opt_2
         )
         injection_parameters['network_matched_filter_snr'] = np.sqrt(
             rho_mf_2
-        ) 
+        )
+
+        if zero_noise:
+            if np.sqrt(rho_opt_2) >= opt_net_snr_thre:
+                inj_list.append(injection_parameters)
+                i += 1
+                pbar.update(1)
+        else:
+            if np.sqrt(rho_mf_2) >= opt_net_snr_thre:
+                inj_list.append(injection_parameters)
+                i += 1
+                pbar.update(1)
 
         all_inj_list.append(injection_parameters)
 
@@ -567,14 +569,12 @@ def main(
             f'{outdir}/detectable.hdf5',
             det_injs,
             total_generated,
-            model,
             commit=commit
         )
         write_hdf5(
             f'{outdir}/all.hdf5',
             all_injs,
             total_generated,
-            model,
             commit=commit
         )
     else:
@@ -582,7 +582,6 @@ def main(
             f'{outdir}/prior.hdf5',
             all_injs,
             total_generated,
-            model,
             commit=commit
         )
 
@@ -671,11 +670,13 @@ if __name__ == '__main__':
         ninj,
         sampleprior,
         snr_threshold,
-        add_noise,
+        zero_noise,
         seed,
         model,
         parameters,
-        kwargs
+        kwargs,
+        injection_waveform_approximant,
+        recovery_waveform_approximant
     ) = parse_args()
 
     print(f'will save injections to {outdir}')
@@ -693,17 +694,20 @@ if __name__ == '__main__':
         with open('../data/interp_net.pkl', 'rb') as f:
             intrange_net = pickle.load(f)
 
+        print(kwargs)
         main(
             number=ninj,
             outdir=outdir,
             opt_net_snr_thre=snr_threshold,
             intrange_net=intrange_net,
             sampleprior=sampleprior,
-            add_noise=add_noise,
+            zero_noise=zero_noise,
             seed=seed,
             make_fast=True,
             model=model,
             commit=commit_hash,
             parameters=parameters,
+            injection_waveform_approximant=injection_waveform_approximant,
+            recovery_waveform_approximant=recovery_waveform_approximant, 
             **kwargs
         )
