@@ -1,6 +1,4 @@
 # run PE. this is designed to be used with condor
-# and for simplicity makes some assumptions: single-core runs, using dynesty
-# IMRPhenomPv2, relative binning for all signals
 
 import os
 import ast

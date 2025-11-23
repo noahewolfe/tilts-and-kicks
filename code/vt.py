@@ -21,6 +21,7 @@ from bilby.gw.detector import PowerSpectralDensity
 from bilby.core.prior import Uniform, Sine, Cosine, Interped
 from bilby.gw.source import lal_binary_black_hole
 from bilby.gw.conversion import convert_to_lal_binary_black_hole_parameters
+from bilby.gw.conversion import generate_all_bbh_parameters
 
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
 from pixelpop.models.gwpop_models import BrokenPowerlawPlusTwoPeaks_PrimaryMass
@@ -271,13 +272,140 @@ def get_inj_priors(name, parameters):
     return inj_priors
 
 
+
+def draw_injection(model, priors):
+    qmin = 0.10
+    qs = np.linspace(qmin, 1, 500)
+
+    injection_parameters = priors.sample()
+    this_z = injection_parameters['redshift']
+    this_m1 = injection_parameters['mass_1_source']
+
+    if model == 'o4a-strong-unif-tilts':
+        @jax.jit
+        def calc_p_q(this_m1):
+            return jnp.exp(PowerlawPlusPeak_MassRatio(
+                dict(
+                    mass_1=this_m1 * jnp.ones(jnp.shape(qs)),
+                    mass_ratio=qs
+                ),
+                slope=parameters['beta'],
+                minimum=parameters['mmin'],
+                delta_m=parameters['delta_m_1']
+            ))
+        pq = calc_p_q(this_m1) 
+        q_prior = Interped(qs, pq, minimum=qmin, maximum=1, name='q')
+        injection_parameters['mass_ratio'] = q_prior.sample()
+        priors['mass_ratio'] = q_prior
+
+    return injection_parameters, priors
+
+
+def fill_parameters(injection_parameters, priors):
+    """ fill in some extra parameters and log_prior column """
+    injection_parameters = generate_all_bbh_parameters(injection_parameters)
+
+    for key in [
+        'mass_1_source',
+        'mass_ratio',
+        'redshift',
+        'a_1',
+        'a_2',
+        'cos_tilt_1',
+        'cos_tilt_2'
+    ]:
+        injection_parameters[f'prior_{key}'] = inj_priors[key].prob(
+            injection_parameters[key]
+        )
+
+    ln_prior = 0
+    for key in [
+        'm1s', 'mass_ratio', 'redshift', 'a_1', 'a_2', 'cos_tilt_1',
+        'cos_tilt_2'
+    ]:
+        ln_prior += np.log(injection_parameters[f'prior_{key}'])
+
+    injection_parameters['log_prior'] = ln_prior
+
+    return injection_parameters
+
+
+def estimate_duration(injection_parameters):
+    raw_duration = bilby.gw.utils.calculate_time_to_merger(
+        flow,
+        injection_parameters['mass_1'],
+        injection_parameters['mass_2']
+    )
+    duration = next_power_of_2(int(np.ceil(raw_duration)))
+    if duration < 16:
+        duration = 16
+    return raw_duration, duration
+
+
+def is_hopeless(intrange_net, injection_parameters):
+    """ determine if an injection is hopeless """
+    hopeless = False
+    if mtot_source < 160:
+        try:
+            max_z = float(intrange_net(mtot_source))
+        except ValueError as e:
+            # if the total mass is outside the interpolation range
+            # we just go ahead and compute SNRs. not the most
+            # efficient; TODO
+            if (
+                len(e.args) > 0
+                and "x_new is below the interpolation range's minimum value" in e.args[0]
+            ):
+                max_z = np.inf
+            else:
+                raise e
+
+        if injection_parameters['redshift'] > max_z and make_fast is True:
+            hopeless = True
+
+    return hopeless
+
+
+def get_ifos(minimum_frequency, sampling_frequency):
+    ifos = bilby.gw.detector.InterferometerList(['H1', 'L1', 'V1'])
+    for ifo in ifos:
+        ifo.minimum_frequency = minimum_frequency
+        ifo.maximum_frequency = sampling_frequency / 2
+        if ifo.name == 'V1':
+            ifo.power_spectral_density = PowerSpectralDensity(
+                asd_file='../sensitivity_curves/avirgo_O4high_NEW.txt'
+            )
+        else:
+            ifo.power_spectral_density = PowerSpectralDensity(
+                asd_file='../sensitivity_curves/aligo_O4low.txt'
+            )
+    return ifos
+
+
+def get_waveform_generator(
+    duration, sampling_frequency, minimum_frequency, waveform_approximant
+):
+    return bilby.gw.waveform_generator.WaveformGenerator(
+        duration=duration,
+        sampling_frequency=sampling_frequency,
+        frequency_domain_source_model=lal_binary_black_hole,
+        waveform_arguments=dict(
+            reference_frequency=20,
+            minimum_frequency=minimum_frequency,
+            waveform_approximant=waveform_approximant,
+            PhenomXPrecVersion=104,
+        ),
+        parameter_conversion=convert_to_lal_binary_black_hole_parameters
+    )
+
+
 def main(
     number,
     outdir,
     opt_net_snr_thre,
     intrange_net,
     sampleprior=False,
-    add_noise=False,
+    zero_noise=False,
     seed=21,
     make_fast=True,
     model='o4a-strong-unif-tilts',
@@ -292,219 +420,140 @@ def main(
     )
     priors = get_inj_priors(model, parameters)
 
-    qmin = 0.10
-    qs = np.linspace(qmin, 1, 500)
-
     inj_list = []
     all_inj_list = []
     i = 0
 
-    flow = 20
+    minimum_frequency = 20
     sampling_frequency = 2048
-    duration = 16
-    det_duration = 16
 
     pbar = tqdm(total=number)
     while i < number:
-        inj_priors = deepcopy(priors)
-        injection_parameters = inj_priors.sample()
-        this_z = injection_parameters['redshift']
-        this_m1 = injection_parameters['mass_1_source']
+        injection_parameters, inj_priors = draw_injection(model, deepcopy(priors))
+        raw_duration, duration = estimate_duration(injection_parameters)
 
-        if model == 'o4a-strong-unif-tilts':
-            @jax.jit
-            def calc_p_q(this_m1):
-                return jnp.exp(PowerlawPlusPeak_MassRatio(
-                    dict(
-                        mass_1=this_m1 * jnp.ones(jnp.shape(qs)),
-                        mass_ratio=qs
-                    ),
-                    slope=parameters['beta'],
-                    minimum=parameters['mmin'],
-                    delta_m=parameters['delta_m_1']
-                ))
-            pq = calc_p_q(this_m1) 
-            q_prior = Interped(qs, pq, minimum=qmin, maximum=1, name='q')
-            injection_parameters['mass_ratio'] = q_prior.sample()
-            inj_priors['mass_ratio'] = q_prior
-
-        injection_parameters['mass_1'] = this_m1 * (1 + this_z)
-        injection_parameters['mass_2'] = (
-            injection_parameters['mass_1']
-            * injection_parameters['mass_ratio']
-        )
-
-        raw_duration = bilby.gw.utils.calculate_time_to_merger(
-            flow,
-            injection_parameters['mass_1'],
-            injection_parameters['mass_2']
-        )
-        det_duration = duration = next_power_of_2(int(np.ceil(raw_duration)))
-        if duration < 16:
-            det_duration = duration = 16
-
-        waveform_generator = bilby.gw.waveform_generator.WaveformGenerator(
-            duration=duration,
-            sampling_frequency=sampling_frequency,
-            frequency_domain_source_model=lal_binary_black_hole,
-            waveform_arguments=dict(
-                reference_frequency=20,
-                minimum_frequency=flow,
-                waveform_approximant=waveform_approximant,
-                PhenomXPrecVersion=104,
-            ),
-            parameter_conversion=convert_to_lal_binary_black_hole_parameters
-        )
-
-        mprod = injection_parameters['mass_1'] * injection_parameters['mass_2']
-        mtot = injection_parameters['mass_1'] + injection_parameters['mass_2']
-        injection_parameters['chirp_mass'] = mprod**(3 / 5) / mtot**(1 / 5)
-        injection_parameters['mass_2_source'] = (
-            injection_parameters['mass_2'] / (1 + this_z)
-        )
-
-        for key in ['tilt_1', 'tilt_2']:
-            injection_parameters[key] = np.arccos(
-                injection_parameters[f'cos_{key}']
-            )
-
-        injection_parameters['prior_m1s'] = inj_priors['mass_1_source'].prob(
-            injection_parameters['mass_1_source']
-        )
-        for key in [
-            'mass_ratio', 'redshift', 'a_1', 'a_2', 'cos_tilt_1', 'cos_tilt_2'
-        ]:
-            injection_parameters[f'prior_{key}'] = inj_priors[key].prob(
-                injection_parameters[key]
-            )
-
-        prior = 1
-        ln_prior = 0
-        for key in [
-            'm1s', 'mass_ratio', 'redshift', 'a_1', 'a_2', 'cos_tilt_1',
-            'cos_tilt_2'
-        ]:
-            prior *= injection_parameters[f'prior_{key}']
-            ln_prior += np.log(injection_parameters[f'prior_{key}'])
-
-        injection_parameters['prior'] = prior
-        injection_parameters['ln_prior'] = ln_prior
-
-        mtot_source = (
-            injection_parameters['mass_1_source']
-            + injection_parameters['mass_2_source']
-        )
-        hopeless = False
-        if mtot_source < 160:
-            try:
-                max_z = float(intrange_net(mtot_source))
-            except ValueError as e:
-                # if the total mass is outside the interpolation range
-                # we just go ahead and compute SNRs. not the most
-                # efficient; TODO
-                if (
-                    len(e.args) > 0
-                    and "x_new is below the interpolation range's minimum value" in e.args[0]
-                ):
-                    max_z = np.inf
-                else:
-                    raise e
-
-            if injection_parameters['redshift'] > max_z and make_fast is True:
-                hopeless = True
-
-        zero_noise = not add_noise
-
-        select_optimal = zero_noise
         data_seed = np.random.randint(1e17 + seed)
-        start_time = injection_parameters['geocent_time'] + 2 - det_duration
+        start_time = injection_parameters['geocent_time'] + 2 - duration
 
-        ifos = bilby.gw.detector.InterferometerList(['H1', 'L1', 'V1'])
-        for ifo in ifos:
-            ifo.minimum_frequency = flow
-            ifo.maximum_frequency = sampling_frequency / 2
-            if ifo.name == 'V1':
-                ifo.power_spectral_density = PowerSpectralDensity(
-                    asd_file='../sensitivity_curves/avirgo_O4high_NEW.txt'
-                )
-            else:
-                ifo.power_spectral_density = PowerSpectralDensity(
-                    asd_file='../sensitivity_curves/aligo_O4low.txt'
-                )
-
-        if sampleprior is False:
-            if hopeless is True:
-                injection_parameters['data_seed'] = data_seed
-                injection_parameters['network_optimal_snr'] = 0
-                injection_parameters['network_matched_filter_snr'] = 0
-            elif zero_noise:
-                ifos.set_strain_data_from_zero_noise(
-                    sampling_frequency=sampling_frequency,
-                    duration=det_duration,
-                    start_time=start_time
-                )
-            else:
-                bilby.core.utils.random.seed(data_seed)
-                ifos.set_strain_data_from_power_spectral_densities(
-                    sampling_frequency=sampling_frequency,
-                    duration=det_duration,
-                    start_time=start_time
-                )
-
-            if hopeless is False:
-                injection_parameters_without_m1_m2_src = deepcopy(
-                    injection_parameters
-                )
-                injection_parameters_without_m1_m2_src.pop('mass_1_source')
-                injection_parameters_without_m1_m2_src.pop('mass_2_source')
-
-                try:
-                    ifos.inject_signal(
-                        parameters=injection_parameters_without_m1_m2_src,
-                        waveform_generator=waveform_generator
-                    )
-                except IndexError as e:
-                    print(injection_parameters_without_m1_m2_src)
-                    raise e
-
-                rho_opt_2 = 0
-                rho_mf_2 = 0
-
-                for ifo in ifos:
-                    rho_opt_2 += ifo.meta_data['optimal_SNR']**2
-                    rho_mf_2 += np.abs(ifo.meta_data['matched_filter_SNR'])**2
-
-                injection_parameters['data_seed'] = data_seed
-                injection_parameters['network_optimal_snr'] = np.sqrt(
-                    rho_opt_2
-                )
-                injection_parameters['network_matched_filter_snr'] = np.sqrt(
-                    rho_mf_2
-                )
-
-                if select_optimal:
-                    if np.sqrt(rho_opt_2) >= opt_net_snr_thre:
-                        inj_list.append(injection_parameters)
-                        i += 1
-                        pbar.update(1)
-                else:
-                    if np.sqrt(rho_mf_2) >= opt_net_snr_thre:
-                        inj_list.append(injection_parameters)
-                        i += 1
-                        pbar.update(1)
-        else:
-            injection_parameters['data_seed'] = data_seed
-            injection_parameters['network_matched_filter_snr'] = 0
-            injection_parameters['network_optimal_snr'] = 0
-            i += 1
-            pbar.update(1)
-
+        injection_parameters['data_seed'] = data_seed
         injection_parameters['raw_duration'] = raw_duration
         injection_parameters['duration'] = duration
         injection_parameters['start_time'] = start_time
 
+        if sampleprior:
+            injection_parameters['network_matched_filter_snr'] = 0
+            injection_parameters['network_optimal_snr'] = 0
+            i += 1
+            pbar.update(1)
+            all_inj_list.append(injection_parameters) 
+            continue
+
+        hopeless = is_hopeless(intrange_net, injection_parameters)
+
+        if hopeless:
+            injection_parameters['network_optimal_snr'] = 0
+            injection_parameters['network_matched_filter_snr'] = 0
+            all_inj_list.append(injection_parameters)
+            continue
+
+        ifos = get_ifos(minimum_frequency, sampling_frequency)
+        if zero_noise:
+            ifos.set_strain_data_from_zero_noise(
+                sampling_frequency=sampling_frequency,
+                duration=det_duration,
+                start_time=start_time
+            )
+        else:
+            bilby.core.utils.random.seed(data_seed)
+            ifos.set_strain_data_from_power_spectral_densities(
+                sampling_frequency=sampling_frequency,
+                duration=det_duration,
+                start_time=start_time
+            ) 
+
+        inj_wavform_generator = get_waveform_generator(
+            duration,
+            sampling_frequency,
+            minimum_frequency,
+            injection_waveform_approximant
+        )
+
+        injection_parameters_without_m1_m2_src = deepcopy(
+            injection_parameters
+        )
+        injection_parameters_without_m1_m2_src.pop('mass_1_source')
+        injection_parameters_without_m1_m2_src.pop('mass_2_source')
+
+        try:
+            ifos.inject_signal(
+                parameters=injection_parameters_without_m1_m2_src,
+                waveform_generator=waveform_generator
+            )
+        except IndexError as e:
+            print(injection_parameters_without_m1_m2_src)
+            raise e
+
+        rho_opt_2 = 0
+        rho_mf_2 = 0
+
+        for ifo in ifos:
+            rho_opt_2 += ifo.meta_data['optimal_SNR']**2
+            rho_mf_2 += np.abs(ifo.meta_data['matched_filter_SNR'])**2
+
+        injection_parameters['injection_network_optimal_snr'] = np.sqrt(
+            rho_opt_2
+        )
+        injection_parameters['injection_network_matched_filter_snr'] = np.sqrt(
+            rho_mf_2
+        )
+
+        if zero_noise:
+            if np.sqrt(rho_opt_2) >= opt_net_snr_thre:
+                inj_list.append(injection_parameters)
+                i += 1
+                pbar.update(1)
+        else:
+            if np.sqrt(rho_mf_2) >= opt_net_snr_thre:
+                inj_list.append(injection_parameters)
+                i += 1
+                pbar.update(1)
+
+        if recovery_waveform_approximant != injection_waveform_approximant:
+            injection_parameters_without_m1_m2_src = deepcopy(
+                injection_parameters
+            )
+            injection_parameters_without_m1_m2_src.pop('mass_1_source')
+            injection_parameters_without_m1_m2_src.pop('mass_2_source')
+            
+            rec_wavform_generator = get_waveform_generator(
+                duration,
+                sampling_frequency,
+                minimum_frequency,
+                recovery_waveform_approximant
+            )
+
+            rec_polarizations = rec_wavform_generator.frequency_domain_strain(
+                injection_parameters_without_m1_m2_src 
+            )
+
+            rho_opt_2 = 0
+            rho_mf_2 = 0
+
+            for ifo in ifos:
+                signal_ifo = ifo.get_detector_response(
+                    rec_polarizations, injection_parameters_without_m1_m2_src
+                )
+                rho_opt_2 += ifo.optimal_snr_squared(signal=signal_ifo).real
+                rho_mf_2 += np.abs(ifo.matched_filter_snr(signal=signal_ifo))**2
+
+        injection_parameters['network_optimal_snr'] = np.sqrt(
+            rho_opt_2
+        )
+        injection_parameters['network_matched_filter_snr'] = np.sqrt(
+            rho_mf_2
+        ) 
+
         all_inj_list.append(injection_parameters)
-        del waveform_generator
 
     total_generated = int(len(all_inj_list))
     all_injs = list_to_dict(all_inj_list)
@@ -608,23 +657,6 @@ def concat(outdir, load_all=False):
             dict(**detectable, attrs=attrs),
             mode='w'
         )
-
-
-def mix(models, injections):
-    # TODO: under construction
-
-    # TODO: decide on what type the injections should be
-    total_generated = sum([
-        (
-            i['total_generated'][0]
-            if isinstance(i['total_generated'], np.ndarray)
-            else i['total_generated']
-        )
-        for i in injections
-    ])
-
-    new_injections = dict()
-    #new_injections['total_generated'] = 
 
 
 if __name__ == '__main__':
