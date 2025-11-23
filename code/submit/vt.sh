@@ -1,16 +1,21 @@
 #!/bin/bash
 set -euox pipefail
 
+proj="$HOME/projects/tilts-and-kicks"
+
 # HTCondor passes the array index as the first argument
 TASK_ID=${1:?need task id}
 
-outdir="$HOME/projects/tilts-and-kicks/data/vt/test"
+outdir="$proj/data/vt/test"
 initseed=10300
 seed=$((initseed + TASK_ID))
 outdir="${outdir}/${seed}"
 
 echo "$outdir"
 mkdir -p "$outdir"
+
+# .py currently assumes we're here
+cd "$proj/code"
 
 py="$HOME/.conda/envs/seqpop/bin/python"
 "$py" vt.py \

@@ -52,6 +52,11 @@ parser.add_argument(
 parser.add_argument(
     '--recovery-waveform-approximant', type=str, default='IMRPhenomXP'
 )
+parser.add_argument(
+    '--interp-net-path',
+    type=os.path.abspath,
+    default='../data/interp_net.pkl'
+)
 
 
 def parse_args():
@@ -69,7 +74,8 @@ def parse_args():
         args.parameters,
         args.extra_kwargs,
         args.injection_waveform_approximant,
-        args.recovery_waveform_approximant
+        args.recovery_waveform_approximant,
+        args.interp_net_path
     )
 
 
@@ -676,7 +682,8 @@ if __name__ == '__main__':
         parameters,
         kwargs,
         injection_waveform_approximant,
-        recovery_waveform_approximant
+        recovery_waveform_approximant,
+        interp_net_path
     ) = parse_args()
 
     print(f'will save injections to {outdir}')
@@ -691,7 +698,7 @@ if __name__ == '__main__':
     if os.path.isfile(os.path.join(outdir, 'allinjs.dat')):
         pass
     else:
-        with open('../data/interp_net.pkl', 'rb') as f:
+        with open(interp_net_path, 'rb') as f:
             intrange_net = pickle.load(f)
 
         print(kwargs)

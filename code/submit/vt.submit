@@ -3,29 +3,18 @@ universe        = vanilla
 executable      = vt.sh
 accounting_group = ligo.sim.o4.cbc.bayesianpopulations.parametric
 
-# Pass the job index (0–999) to the script as $1
 arguments       = $(Process)
 
 # Keep your normal shell environment (for HOME, etc.)
 getenv          = True
 
-# 1 CPU and 4 GB, analogous to --cpus-per-task=1 and --mem=4GB
 request_cpus    = 1
 request_memory  = 4 GB
 request_disk = 1 GB
 
-# If your site uses a walltime or runtime attribute, this is ~3 days
-# (only works if your pool honors it; otherwise it's harmless)
-+MaxRuntime     = 259200
-
-# Optional: log files for HTCondor itself (separate from vt.py logs)
 output          = condor_logs/vt_$(Process).out
 error           = condor_logs/vt_$(Process).err
 log             = condor_logs/vt_$(Process).log
-
-# Optional: if your cluster has a custom "submit" partition-like attribute,
-# uncomment and adapt this to match your local config:
-# requirements    = (TARGET.QueueName == "submit")
 
 # Create 1000 jobs with $(Process) = 0..999
 queue 2
