@@ -417,19 +417,16 @@ def skewtruncnorm(x, mu, sigma, skew, high, low):
 
 def bpl2p_plz_truncnormmag_isogausstilt(dataset, parameters):
     from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
-    from pixelpop.models.gwpop_models import (
-        BrokenPowerlawPlusTwoPeaks_PrimaryMass
-    )
 
     if 'lam_2' not in parameters.keys():
         if 'lam_0' in parameters.keys() and 'lam_1' in parameters.keys():
             parameters['lam_2'] = 1 - parameters['lam_0'] - parameters['lam_1']
 
-    log_p_m1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass(
+    log_p_m1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
         dataset,
         alpha_1=parameters['alpha_1'],
         alpha_2=parameters['alpha_2'],
-        mmin=parameters['mmin'],
+        mlow_1=parameters['mlow_1'],
         break_mass=parameters['break_mass'],
         delta_m_1=parameters['delta_m_1'],
         lam_fractions=(

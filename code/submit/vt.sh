@@ -6,8 +6,8 @@ proj="$HOME/projects/tilts-and-kicks"
 # HTCondor passes the array index as the first argument
 TASK_ID=${1:?need task id}
 
-outdir="$proj/data/vt/test"
-initseed=10300
+outdir="$proj/data/vt/fly"
+initseed=100
 seed=$((initseed + TASK_ID))
 outdir="${outdir}/${seed}"
 
@@ -20,7 +20,7 @@ cd "$proj/code"
 py="$HOME/.conda/envs/seqpop/bin/python"
 "$py" vt.py \
     --outdir "$outdir" \
-    --ninj 1 \
+    --ninj 100 \
     --snr-threshold 11 \
     --seed "$seed" \
     --parameters "./parameters/vt-o4a-strong-maxl-iso-tilts.json" \
