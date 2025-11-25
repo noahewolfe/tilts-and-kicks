@@ -6,7 +6,7 @@ sigpp_1 = Uniform(minimum=0, maximum=10)
 mpp_2 = Uniform(minimum=25, maximum=60)
 sigpp_2 = Uniform(minimum=0, maximum=10)
 delta_m_1 = Uniform(minimum=0, maximum=10)
-mmin = Uniform(minimum=3, maximum=6.5)
+mlow_1 = Uniform(minimum=3, maximum=6.5)
 
 lam_0 = DirichletElement(order=0, n_dimensions=3, label='lam_')
 lam_1 = DirichletElement(order=1, n_dimensions=3, label='lam_')

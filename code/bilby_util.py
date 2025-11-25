@@ -123,7 +123,7 @@ def dirichlet_log_prob(label, n, parameters, backend='jax'):
 
 class LikelihoodWrapper(Likelihood):
     def __init__(
-        self, posteriors, injections, density, rate=False, taper=lambda: 0,
+        self, posteriors, injections, density, rate=False, taper=lambda _: 0,
         tobs=None
     ):
         from jax import jit

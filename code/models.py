@@ -203,6 +203,16 @@ def iso_gauss_spin_tilt(dataset, xi_spin, sigma_spin, mu_spin=1):
     )
 
 
+def marg_iso_gauss_spin_tilt(cos_tau, xi_spin, sigma_spin, mu_spin=1):
+    return (
+        (1 - xi_spin) / 2
+        + (
+            xi_spin
+            * truncnorm(cos_tau, mu_spin, sigma_spin, high=1, low=-1)
+        )
+    )
+
+
 def BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
     data,
     alpha_1,
@@ -444,7 +454,7 @@ def bpl2p_plz_truncnormmag_isogausstilt(dataset, parameters):
     log_p_q_given_m1 = PowerlawPlusPeak_MassRatio(
         dataset,
         slope=parameters['beta'],
-        minimum=parameters['mmin'],
+        minimum=parameters['mlow_1'],
         delta_m=parameters['delta_m_1']
     )
     p_q_given_m1 = jnp.exp(log_p_q_given_m1)
