@@ -22,14 +22,6 @@ def truncnorm(xx, mu, sigma, high, low):
     return prob
 
 
-def cubic_filter(x):
-    return (3 - 2 * x) * x**2 * (0 <= x) * (x <= 1) + (1 < x)
-
-
-def highpass(x, xmin, dmin):
-    return cubic_filter((x - xmin) / dmin)
-
-
 def truncated_powerlaw(x, alpha, xmin, xmax):
     cut = (xmin <= x) * (x <= xmax)
     shape = x**alpha
@@ -160,24 +152,6 @@ def plp_q_norm(
     norms = jnp.nan_to_num(jnp.trapezoid(shapes, qs, axis=1))
 
     return jnp.clip(jnp.interp(mass_1, m1s, norms), min=1e-100)
-
-    # note: this is way slower than jnp.interp for method='linear'
-    # TODO: revert since it doesnt seem to change mmax inference
-    # (and is technically incorrect)
-    #interpolator = Interpolator1D(m1s, norms, method=interp_method)
-    #res = jax.vmap(interpolator)(mass_1)
-
-    #return jnp.clip(res, min=1e-100)
-
-    # TODO: any more elegant solutions?
-    # the jnp.where "double-trick" didn't work. maybe because the derivative
-    # isn't defined as mmin approaches mass_1 ?
-    # we could enforce a smooth interpolation, but, that's not exactly
-    # correct either.
-    #return jnp.clip(
-    #    interp1d(mass_1, m1s, norms, method=interp_method),
-    #    min=1e-100
-    #)
 
 
 def plp_q(

@@ -64,6 +64,11 @@ parser.add_argument(
     '--not-fast',
     action='store_true'
 )
+parser.add_argument(
+    '--overwrite',
+    action='store_true',
+    help='overwrite existing vt result'
+)
 
 
 def parse_args():
@@ -87,7 +92,8 @@ def parse_args():
         args.injection_waveform_approximant,
         args.recovery_waveform_approximant,
         args.interp_net_path,
-        not args.not_fast
+        not args.not_fast,
+        args.overwrite
     )
 
 
@@ -652,8 +658,6 @@ def main(
             commit=commit
         )
 
-    print('done.')
-
 
 def concat(outdir, load_all=False):
     outdir = os.path.abspath(outdir)
@@ -749,24 +753,24 @@ if __name__ == '__main__':
         injection_waveform_approximant,
         recovery_waveform_approximant,
         interp_net_path,
-        make_fast
+        make_fast,
+        overwrite
     ) = parse_args()
 
     print(f'will save injections to {outdir}')
+
     os.makedirs(outdir, exist_ok=True)
+    det_path = f'{outdir}/detectable.hdf5'
 
-    bilby.core.utils.random.seed(seed)
-
-    if not os.path.isdir(outdir):
-        os.makedirs(outdir)
-
-    if os.path.isfile(os.path.join(outdir, 'allinjs.dat')):
+    if not overwrite and os.path.isfile(det_path):
+        print(f'{det_path} already exists; skipping!')
         pass
     else:
         with open(interp_net_path, 'rb') as f:
             intrange_net = pickle.load(f)
 
-        print(kwargs)
+        bilby.core.utils.random.seed(seed)
+
         main(
             number=ninj,
             outdir=outdir,
@@ -783,3 +787,5 @@ if __name__ == '__main__':
             recovery_waveform_approximant=recovery_waveform_approximant, 
             **kwargs
         )
+
+    print('done.')

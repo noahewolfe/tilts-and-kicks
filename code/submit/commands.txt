@@ -1,3 +1,3 @@
-python queue.py vt.py --submit --parentdir ../data/vt/fly-slow --queue 1000 --args '--ninj 100 --snr-threshold 11 --init-seed 100 --model ./parameters/model.json --parameters ./parameters/o4a-strong-maxl.json --not-fast'
+python queue.py vt.py --submit --parentdir ../data/vt/fly-extra --queue 1000 --args '--ninj 1000 --snr-threshold 11 --init-seed 1100 --model ./parameters/model.json --parameters ./parameters/o4a-strong-maxl.json'
 
 python queue.py pe.py --parentdir ../data/pe/mock --queue 100 --args '--npool 1 --prior-path ./priors/bbh.prior --time-reference H1 --nlive 250 --catalog-path ../data/vt/mock/cat.hdf5 --injection-waveform xphm --recovery-waveform xp'
