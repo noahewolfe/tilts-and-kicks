@@ -81,7 +81,7 @@ def parse_args():
         args.snr_threshold,
         args.zero_noise,
         seed,
-        args.model,
+        model,
         args.parameters,
         args.extra_kwargs,
         args.injection_waveform_approximant,
