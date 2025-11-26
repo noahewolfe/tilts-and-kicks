@@ -22,14 +22,6 @@ def truncnorm(xx, mu, sigma, high, low):
     return prob
 
 
-def cubic_filter(x):
-    return (3 - 2 * x) * x**2 * (0 <= x) * (x <= 1) + (1 < x)
-
-
-def highpass(x, xmin, dmin):
-    return cubic_filter((x - xmin) / dmin)
-
-
 def truncated_powerlaw(x, alpha, xmin, xmax):
     cut = (xmin <= x) * (x <= xmax)
     shape = x**alpha
@@ -161,24 +153,6 @@ def plp_q_norm(
 
     return jnp.clip(jnp.interp(mass_1, m1s, norms), min=1e-100)
 
-    # note: this is way slower than jnp.interp for method='linear'
-    # TODO: revert since it doesnt seem to change mmax inference
-    # (and is technically incorrect)
-    #interpolator = Interpolator1D(m1s, norms, method=interp_method)
-    #res = jax.vmap(interpolator)(mass_1)
-
-    #return jnp.clip(res, min=1e-100)
-
-    # TODO: any more elegant solutions?
-    # the jnp.where "double-trick" didn't work. maybe because the derivative
-    # isn't defined as mmin approaches mass_1 ?
-    # we could enforce a smooth interpolation, but, that's not exactly
-    # correct either.
-    #return jnp.clip(
-    #    interp1d(mass_1, m1s, norms, method=interp_method),
-    #    min=1e-100
-    #)
-
 
 def plp_q(
     mass_ratio, mass_1, beta, mmin, dmin, norm_mmin=1, norm_mmax=200,
@@ -199,6 +173,16 @@ def iso_gauss_spin_tilt(dataset, xi_spin, sigma_spin, mu_spin=1):
             xi_spin
             * truncnorm(cos_tilt_1, mu_spin, sigma_spin, high=1, low=-1)
             * truncnorm(cos_tilt_2, mu_spin, sigma_spin, high=1, low=-1)
+        )
+    )
+
+
+def marg_iso_gauss_spin_tilt(cos_tau, xi_spin, sigma_spin, mu_spin=1):
+    return (
+        (1 - xi_spin) / 2
+        + (
+            xi_spin
+            * truncnorm(cos_tau, mu_spin, sigma_spin, high=1, low=-1)
         )
     )
 
@@ -417,19 +401,16 @@ def skewtruncnorm(x, mu, sigma, skew, high, low):
 
 def bpl2p_plz_truncnormmag_isogausstilt(dataset, parameters):
     from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
-    from pixelpop.models.gwpop_models import (
-        BrokenPowerlawPlusTwoPeaks_PrimaryMass
-    )
 
     if 'lam_2' not in parameters.keys():
         if 'lam_0' in parameters.keys() and 'lam_1' in parameters.keys():
             parameters['lam_2'] = 1 - parameters['lam_0'] - parameters['lam_1']
 
-    log_p_m1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass(
+    log_p_m1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
         dataset,
         alpha_1=parameters['alpha_1'],
         alpha_2=parameters['alpha_2'],
-        mmin=parameters['mmin'],
+        mlow_1=parameters['mlow_1'],
         break_mass=parameters['break_mass'],
         delta_m_1=parameters['delta_m_1'],
         lam_fractions=(
@@ -447,7 +428,7 @@ def bpl2p_plz_truncnormmag_isogausstilt(dataset, parameters):
     log_p_q_given_m1 = PowerlawPlusPeak_MassRatio(
         dataset,
         slope=parameters['beta'],
-        minimum=parameters['mmin'],
+        minimum=parameters['mlow_1'],
         delta_m=parameters['delta_m_1']
     )
     p_q_given_m1 = jnp.exp(log_p_q_given_m1)

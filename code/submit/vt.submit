@@ -1,4 +1,3 @@
-# vt.submit
 universe        = vanilla
 executable      = vt.sh
 accounting_group = ligo.sim.o4.cbc.bayesianpopulations.parametric
@@ -12,9 +11,8 @@ request_cpus    = 1
 request_memory  = 4 GB
 request_disk = 1 GB
 
-output          = condor_logs/vt_$(Process).out
-error           = condor_logs/vt_$(Process).err
-log             = condor_logs/vt_$(Process).log
+output          = condor_logs/mock_$(Process).out
+error           = condor_logs/mock_$(Process).err
+log             = condor_logs/mock_$(Process).log
 
-# Create 1000 jobs with $(Process) = 0..999
-queue 2
+queue 100

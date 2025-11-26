@@ -26,6 +26,8 @@ from bilby.gw.conversion import generate_all_bbh_parameters
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
 
 from models import truncnorm
+from models import iso_gauss_spin_tilt
+from models import marg_iso_gauss_spin_tilt
 from models import log_powerlaw_redshift
 from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
 
@@ -42,8 +44,9 @@ parser.add_argument('--ninj', type=int, default=1_000)
 parser.add_argument('--sample-prior', action='store_true')
 parser.add_argument('--snr-threshold', type=int, default=11)
 parser.add_argument('--zero-noise', action='store_true')
-parser.add_argument('--seed', type=int)
-parser.add_argument('--model', type=json.loads, default='{}')
+parser.add_argument('--seed', '--index', type=int)
+parser.add_argument('--init-seed', type=int, default=0)
+parser.add_argument('--model', type=str)
 parser.add_argument('--parameters', default=None)
 parser.add_argument('--extra-kwargs', type=json.loads, default='{}')
 parser.add_argument(
@@ -57,25 +60,40 @@ parser.add_argument(
     type=os.path.abspath,
     default='../data/interp_net.pkl'
 )
+parser.add_argument(
+    '--not-fast',
+    action='store_true'
+)
+parser.add_argument(
+    '--overwrite',
+    action='store_true',
+    help='overwrite existing vt result'
+)
 
 
 def parse_args():
     args = parser.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
     write_config(args)
+    seed = args.seed + args.init_seed
+    model = args.model
+    with open(model, 'r') as f:
+        model = json.loads(f.read())
     return (
         args.outdir,
         args.ninj,
         args.sample_prior,
         args.snr_threshold,
         args.zero_noise,
-        args.seed,
-        args.model,
+        seed,
+        model,
         args.parameters,
         args.extra_kwargs,
         args.injection_waveform_approximant,
         args.recovery_waveform_approximant,
-        args.interp_net_path
+        args.interp_net_path,
+        not args.not_fast,
+        args.overwrite
     )
 
 
@@ -115,7 +133,7 @@ def get_parameters(path=None, outdir=None, **kwargs):
         return parameters
 
 
-def get_inj_priors(model, parameters):
+def get_inj_priors(model, parameters, outdir=None):
     inj_priors = bilby.core.prior.PriorDict(dict(
         dec=Cosine(name='dec'),
         ra=Uniform(
@@ -141,16 +159,21 @@ def get_inj_priors(model, parameters):
         )
     ))
 
-    if model['cos_tilt_1'] == 'uniform' and model['cos_tilt_2'] == 'uniform':
-        ct_low = parameters['cos_tilt_min']
-        ct_high = parameters['cos_tilt_max']
+    if model['cos_tilt'] != 'iso_gauss':
+        if model['cos_tilt'] == 'uniform':
+            ct_low = parameters['cos_tilt_min']
+            ct_high = parameters['cos_tilt_max']
 
-        inj_priors['cos_tilt_1'] = Uniform(ct_low, ct_high, name='cos_tilt_1')
-        inj_priors['cos_tilt_2'] = Uniform(ct_low, ct_high, name='cos_tilt_2')
-    else:
-        raise ValueError(
-            f"unknown spin models {model['cos_tilt_1'], model['cos_tilt_2']}"
-        )
+            inj_priors['cos_tilt_1'] = Uniform(
+                ct_low, ct_high, name='cos_tilt_1'
+            )
+            inj_priors['cos_tilt_2'] = Uniform(
+                ct_low, ct_high, name='cos_tilt_2'
+            )
+        else:
+            raise ValueError(
+                f"unknown tilt model {model['cos_tilt']}"
+            )
 
     if model['a_1'] == 'iid_truncnorm' and model['a_2'] == 'iid_truncnorm':
         mu_chi = parameters['mu_chi']
@@ -223,6 +246,9 @@ def get_inj_priors(model, parameters):
             f"unknown mass_1_source model {model['mass_1_source']}"
         )
 
+    if outdir is not None:
+        inj_priors.to_file(outdir, 'inj')
+
     return inj_priors
 
 
@@ -244,16 +270,18 @@ def fill_parameters(injection_parameters, priors):
         'cos_tilt_1',
         'cos_tilt_2'
     ]:
-        injection_parameters[f'prior_{key}'] = priors[key].prob(
-            injection_parameters[key]
-        )
+        name = f'log_prior_{key}'
+        if name not in injection_parameters.keys():
+            injection_parameters[name] = priors[key].ln_prob(
+                injection_parameters[key]
+            )
 
     ln_prior = 0
     for key in [
         'mass_1_source', 'mass_ratio', 'redshift', 'a_1', 'a_2', 'cos_tilt_1',
         'cos_tilt_2'
     ]:
-        ln_prior += np.log(injection_parameters[f'prior_{key}'])
+        ln_prior += injection_parameters[f'log_prior_{key}']
 
     injection_parameters['log_prior'] = ln_prior
 
@@ -305,6 +333,44 @@ def draw_injection(priors, model, parameters):
         priors['mass_ratio'] = q_prior
     else:
         raise ValueError(f"Unknown mass_ratio model {model['mass_ratio']}")
+
+    if model['cos_tilt'] == 'iso_gauss':
+        xi_spin = parameters['xi_spin']
+        mu_spin = parameters['mu_spin']
+        sigma_spin = parameters['sigma_spin']
+
+        cts = np.linspace(-1, 1, 500)
+
+        u = bilby.core.utils.random.rng.uniform()
+        if u < xi_spin:
+            p_ct = truncnorm(cts, mu_spin, sigma_spin, 1, -1)
+            ct_prior = Interped(cts, p_ct, minimum=-1, maximum=1)
+            ct1 = ct_prior.sample()
+            ct2 = ct_prior.sample()
+        else:
+            ct1 = bilby.core.utils.random.rng.uniform(low=-1, high=1)
+            ct2 = bilby.core.utils.random.rng.uniform(low=-1, high=1)
+
+        injection_parameters['cos_tilt_1'] = ct1
+        injection_parameters['cos_tilt_2'] = ct2
+
+        log_p_ct1 = np.log(
+            marg_iso_gauss_spin_tilt(ct1, xi_spin, sigma_spin, mu_spin)
+        )
+        log_p_both = np.log(iso_gauss_spin_tilt(
+            dict(
+                cos_tilt_1=ct1,
+                cos_tilt_2=ct2
+            ),
+            xi_spin,
+            sigma_spin,
+            mu_spin
+        ))
+
+        log_p_ct2_given_ct1 = log_p_both - log_p_ct1
+
+        injection_parameters['log_prior_cos_tilt_1'] = log_p_ct1
+        injection_parameters['log_prior_cos_tilt_2'] = log_p_ct2_given_ct1
 
     return fill_parameters(injection_parameters, priors)
 
@@ -406,8 +472,7 @@ def main(
         redshift='powerlaw',
         a_1='iid_truncnorm',
         a_2='iid_truncnorm',
-        cos_tilt_1='uniform',
-        cos_tilt_2='uniform'
+        cos_tilt='uniform',
     )
     default_model.update(model)
 
@@ -435,7 +500,9 @@ def main(
             minimum_frequency
         )
 
-        data_seed = np.random.randint(1e17 + seed)
+        data_seed = bilby.core.utils.random.rng.integers(
+            low=0, high=1e17 + seed, dtype=np.int64
+        )
         start_time = injection_parameters['geocent_time'] + 2 - duration
 
         injection_parameters['data_seed'] = data_seed
@@ -591,8 +658,6 @@ def main(
             commit=commit
         )
 
-    print('done.')
-
 
 def concat(outdir, load_all=False):
     outdir = os.path.abspath(outdir)
@@ -649,11 +714,15 @@ def concat(outdir, load_all=False):
         )
 
         for dir in tqdm(dirs[1:]):
-            _p, _a, total, data = load(dir, 'detectable')
-            assert _p == parameters
-            assert _a == attrs
-            total_generated += total
-            detectable = concat_dicts(detectable, data)
+            try:
+                _p, _a, total, data = load(dir, 'detectable')
+                assert _p == parameters
+                assert _a == attrs
+                total_generated += total
+                detectable = concat_dicts(detectable, data)
+            except AssertionError as e:
+                print(f'Assertion error {e} with {dir}')
+                continue
 
         detectable['total_generated'] = total_generated
         detectable['parameters'] = parameters
@@ -683,25 +752,25 @@ if __name__ == '__main__':
         kwargs,
         injection_waveform_approximant,
         recovery_waveform_approximant,
-        interp_net_path
+        interp_net_path,
+        make_fast,
+        overwrite
     ) = parse_args()
 
     print(f'will save injections to {outdir}')
+
     os.makedirs(outdir, exist_ok=True)
+    det_path = f'{outdir}/detectable.hdf5'
 
-    np.random.seed(seed)
-    bilby.core.utils.random.seed(seed)
-
-    if not os.path.isdir(outdir):
-        os.makedirs(outdir)
-
-    if os.path.isfile(os.path.join(outdir, 'allinjs.dat')):
+    if not overwrite and os.path.isfile(det_path):
+        print(f'{det_path} already exists; skipping!')
         pass
     else:
         with open(interp_net_path, 'rb') as f:
             intrange_net = pickle.load(f)
 
-        print(kwargs)
+        bilby.core.utils.random.seed(seed)
+
         main(
             number=ninj,
             outdir=outdir,
@@ -710,7 +779,7 @@ if __name__ == '__main__':
             sampleprior=sampleprior,
             zero_noise=zero_noise,
             seed=seed,
-            make_fast=True,
+            make_fast=make_fast,
             model=model,
             commit=commit_hash,
             parameters=parameters,
@@ -718,3 +787,5 @@ if __name__ == '__main__':
             recovery_waveform_approximant=recovery_waveform_approximant, 
             **kwargs
         )
+
+    print('done.')
