@@ -1,4 +1,3 @@
-# vt.submit
 universe        = vanilla
 executable      = vt.sh
 accounting_group = ligo.sim.o4.cbc.bayesianpopulations.parametric

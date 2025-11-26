@@ -24,7 +24,9 @@ from bilby.gw.likelihood import RelativeBinningGravitationalWaveTransient
 
 from bilby_util import get_network
 
-from util import get_git_revision_short_hash, next_power_of_2
+from util import get_git_revision_short_hash
+from util import next_power_of_2
+from util import write_config
 
 parameter_keys = [
     'chirp_mass',
@@ -49,7 +51,7 @@ parser.add_argument('--outdir', type=str)
 parser.add_argument('--npool', type=int)
 parser.add_argument('--prior-path', type=str)
 parser.add_argument('--mchirp-width', type=float, default=-1)
-parser.add_argument('--event-index', type=int)
+parser.add_argument('--index', type=int)
 parser.add_argument('--catalog-path', type=str)
 
 parser.add_argument('--reference-frame', type=str, default="'H1L1'")
@@ -68,9 +70,25 @@ parser.add_argument('--prior-lowest-allowed-mchirp', type=float, default=3)
 parser.add_argument('--outdir-extras', type=str, default='')
 
 parser.add_argument('--reweight', action='store_true')
-parser.add_argument('--waveform', default='xp')
+parser.add_argument('--injection-waveform', default='xphm')
+parser.add_argument('--recovery-waveform', default='xp')
+
+
+def get_waveform(s):
+    if s not in ['IMRPhenomXP', 'IMRPhenomXPHM']:
+        if s == 'xp':
+            return 'IMRPhenomXP'
+        elif s == 'xphm':
+            return 'IMRPhenomXPHM'
+        else:
+            raise ValueError(f'Unknown waveform {s}')
+    else:
+        return s
+
 
 def digest_args(args):
+    write_config(args)
+
     outdir = args.outdir
     npool = args.npool
 
@@ -80,7 +98,7 @@ def digest_args(args):
     proposals = args.proposals
 
     catalog_path = args.catalog_path
-    event_index = args.event_index
+    event_index = args.index
 
     rerun_with_wider_priors = args.rerun_with_wider_priors
     rerun_mass_delta = args.rerun_mass_delta
@@ -118,8 +136,12 @@ def digest_args(args):
                         cosmology='Planck15'
                     )
                 )
+            else:
+                injection_parameters[k] = catalog[k][event_index]
         else:
             injection_parameters[k] = catalog[k][event_index]
+
+    print(injection_parameters)
 
     true_m1 = injection_parameters.pop('mass_1')
     true_m2 = injection_parameters.pop('mass_2')
@@ -246,27 +268,29 @@ def digest_args(args):
     optimal_network_snr = catalog['network_optimal_snr'][event_index]
     matched_filter_network_snr = catalog['network_matched_filter_snr'][event_index]
 
+    injection_optimal_network_snr = catalog['injection_network_optimal_snr'][event_index]
+    injection_matched_filter_network_snr = catalog['injection_network_matched_filter_snr'][event_index] 
+
     rerun = rerun_with_wider_priors
 
-    waveform = args.waveform_approximant
-    if waveform == 'xp':
-        waveform = 'IMRPhenomXP'
-    elif waveform == 'xphm':
-        waveform = 'IMRPhenomXPHM'
+    injection_waveform = get_waveform(args.injection_waveform)
+    recovery_waveform = get_waveform(args.recovery_waveform)
 
     return (
         outdir, npool, catalog_path, event_index, priors, injection_parameters,
         noise_seed, duration,
         minimum_frequency, sampling_frequency, reference_frequency,
         network, likelihood_kwargs, nlive, naccept, bound, proposals,
-        optimal_network_snr, matched_filter_network_snr, rerun, outdir_extras,
-        args.reweight, waveform
+        optimal_network_snr, matched_filter_network_snr,
+        injection_optimal_network_snr, injection_matched_filter_network_snr,
+        rerun, outdir_extras,
+        args.reweight, injection_waveform, recovery_waveform
     )
 
 
 def get_waveform_generator(
     duration, minimum_frequency, sampling_frequency, reference_frequency,
-    waveform_approximant, likelihood_class, phenomxprecversion
+    waveform_approximant, phenomxprecversion
 ):
     waveform_arguments = dict(
         waveform_approximant=waveform_approximant,
@@ -442,10 +466,13 @@ if __name__ == '__main__':
         proposals,
         optimal_network_snr,
         matched_filter_network_snr,
+        injection_optimal_network_snr,
+        injection_matched_filter_network_snr,
         rerun,
         outdir_extras,
         reweight,
-        waveform_approximant
+        injection_waveform,
+        recovery_waveform
     ) = digest_args(args)
 
     likelihood_class = RelativeBinningGravitationalWaveTransient
@@ -460,13 +487,13 @@ if __name__ == '__main__':
     print('--- \\ waveform_generator for likelihood evaluations / ---')
     waveform_arguments, waveform_generator = get_waveform_generator(
         duration, minimum_frequency, sampling_frequency, reference_frequency,
-        waveform_approximant, likelihood_class, phenomxprecversion
+        recovery_waveform, phenomxprecversion
     )
 
     print('--- \\ waveform_generator for the injection / ---')
     _, injection_waveform_generator = get_waveform_generator(
         duration, minimum_frequency, sampling_frequency, reference_frequency,
-        waveform_approximant, likelihood_class, phenomxprecversion
+        injection_waveform, phenomxprecversion
     )
 
     ifos = get_network(
@@ -513,9 +540,47 @@ if __name__ == '__main__':
         np.abs(ifo.meta_data['matched_filter_SNR'])**2 for ifo in ifos
     ]))
 
+    # 1. check if injected snr computed w/ correct waveform matches
+
+    if not np.isclose(opt_net_snr, injection_optimal_network_snr):
+        raise ValueError(
+            'Injection optimal network snrs dont match for '
+            f'{event_index} in {catalog_path}! '
+            f'Got {opt_net_snr} vs. {injection_optimal_network_snr} in catalog. '
+            'Are you sure the snrs and injection parameters match?'
+        )
+
+    if not np.isclose(mf_net_snr, injection_matched_filter_network_snr):
+        raise ValueError(
+            'Injection matched filter network snrs dont match for '
+            f'{event_index} in {catalog_path}! '
+            f'Got {mf_net_snr} vs. {injection_matched_filter_network_snr} in catalog. '
+            'Are you sure the snrs and noise seeds match? '
+            'Do you have the correct bilby version?'
+        )
+
+    # 2. check if recovery snrs match
+    rec_polarizations = waveform_generator.frequency_domain_strain(
+        injection_parameters
+    )
+
+    opt_net_snr = 0
+    mf_net_snr = 0
+
+    for ifo in ifos:
+        signal_ifo = ifo.get_detector_response(
+            rec_polarizations, injection_parameters
+        )
+        opt_net_snr += ifo.optimal_snr_squared(signal=signal_ifo).real
+        mf_net_snr += np.abs(
+            ifo.matched_filter_snr(signal=signal_ifo)
+        )**2
+    opt_net_snr = np.sqrt(opt_net_snr)
+    mf_net_snr = np.sqrt(mf_net_snr)
+
     if not np.isclose(opt_net_snr, optimal_network_snr):
         raise ValueError(
-            'Optimal network snrs dont match for '
+            'Recovery optimal network snrs dont match for '
             f'{event_index} in {catalog_path}! '
             f'Got {opt_net_snr} vs. {optimal_network_snr} in catalog. '
             'Are you sure the snrs and injection parameters match?'
@@ -523,7 +588,7 @@ if __name__ == '__main__':
 
     if not np.isclose(mf_net_snr, matched_filter_network_snr):
         raise ValueError(
-            'Matched filter network snrs dont match for '
+            'Recovery matched filter network snrs dont match for '
             f'{event_index} in {catalog_path}! '
             f'Got {mf_net_snr} vs. {matched_filter_network_snr} in catalog. '
             'Are you sure the snrs and noise seeds match? '

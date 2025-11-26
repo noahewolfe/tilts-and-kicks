@@ -44,8 +44,9 @@ parser.add_argument('--ninj', type=int, default=1_000)
 parser.add_argument('--sample-prior', action='store_true')
 parser.add_argument('--snr-threshold', type=int, default=11)
 parser.add_argument('--zero-noise', action='store_true')
-parser.add_argument('--seed', type=int)
-parser.add_argument('--model', type=json.loads, default='{}')
+parser.add_argument('--seed', '--index', type=int)
+parser.add_argument('--init-seed', type=int, default=0)
+parser.add_argument('--model', type=str)
 parser.add_argument('--parameters', default=None)
 parser.add_argument('--extra-kwargs', type=json.loads, default='{}')
 parser.add_argument(
@@ -59,25 +60,34 @@ parser.add_argument(
     type=os.path.abspath,
     default='../data/interp_net.pkl'
 )
+parser.add_argument(
+    '--not-fast',
+    action='store_true'
+)
 
 
 def parse_args():
     args = parser.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
     write_config(args)
+    seed = args.seed + args.init_seed
+    model = args.model
+    with open(model, 'r') as f:
+        model = json.loads(f.read())
     return (
         args.outdir,
         args.ninj,
         args.sample_prior,
         args.snr_threshold,
         args.zero_noise,
-        args.seed,
+        seed,
         args.model,
         args.parameters,
         args.extra_kwargs,
         args.injection_waveform_approximant,
         args.recovery_waveform_approximant,
-        args.interp_net_path
+        args.interp_net_path,
+        not args.not_fast
     )
 
 
@@ -738,7 +748,8 @@ if __name__ == '__main__':
         kwargs,
         injection_waveform_approximant,
         recovery_waveform_approximant,
-        interp_net_path
+        interp_net_path,
+        make_fast
     ) = parse_args()
 
     print(f'will save injections to {outdir}')
@@ -764,7 +775,7 @@ if __name__ == '__main__':
             sampleprior=sampleprior,
             zero_noise=zero_noise,
             seed=seed,
-            make_fast=True,
+            make_fast=make_fast,
             model=model,
             commit=commit_hash,
             parameters=parameters,

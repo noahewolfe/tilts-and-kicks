@@ -18,7 +18,7 @@ mkdir -p "$outdir"
 cd "$proj/code"
 
 py="$HOME/.conda/envs/seqpop/bin/python"
-"$py" vt.py \
+"$py" -u vt.py \
     --outdir "$outdir" \
     --ninj 50 \
     --snr-threshold 11 \
