@@ -671,18 +671,38 @@ def concat(outdir, load_all=False):
     ])
 
     def load(dir, name):
-        with open(f'{dir}/parameters.json', 'r') as f:
-            parameters = json.loads(f.read())
         data = h5ify.load(f'{dir}/{name}.hdf5')
+
+        extras = dict()
+
+        for p in ['parameters', 'model']:
+            with open(f'{dir}/{p}.json', 'r') as f:
+                dic = json.loads(f.read())
+                extras[p] = dic
+
         attrs = data.pop('attrs')
         total = attrs.pop('total_generated')
-        return parameters, attrs, total, data
+
+        with open(f'{dir}/config.json', 'r') as f:
+            attrs.update(json.loads(f.read()))
+
+        # pop keys we dont care to track
+        # and will break our assertion that all keys in attrs
+        # are the same (or enough so) between different vt files
+        attrs.pop('seed')
+        attrs.pop('ninj')
+        attrs.pop('outdir')
+
+        for k in list(attrs.keys()):
+            if isinstance(attrs[k], dict):
+                attrs.pop(k)
+
+        extras['attrs'] = attrs
+
+        return extras, total, data
 
     if load_all:
-        detectable = h5ify.load(f'{outdir}/detectable.hdf5')
-        total_generated = detectable.pop('total_generated')
-        parameters = detectable.pop('parameters')
-        attrs = detectable.pop('attrs')
+        extras, total_generated, detectable = load(outdir, 'detectable')
 
         with h5py.File(f'{outdir}/all.hdf5', 'w') as f:
             dsets = dict()
@@ -696,42 +716,46 @@ def concat(outdir, load_all=False):
 
             j = 0
             for dir in tqdm(dirs):
-                _, _, _, data = load(dir, 'all')
+                _, _, data = load(dir, 'all')
                 n = len(data[c])
                 for c in detectable.keys():
                     dsets[c][j : j + n] = data[c]
                 j += n
 
-            for k, v in attrs.items():
+            for k, v in extras['attrs'].items():
                 f.attrs[k] = v
 
-            grp = f.create_group('parameters')
-            for k in parameters.keys():
-                grp.create_dataset(k, data=parameters[k])
+            for k, v in extras.items():
+                if k != 'attrs':
+                    grp = f.create_group('k')
+                    for s in v.keys():
+                        grp.create_dataset(s, data=v[s])
     else:
-        parameters, attrs, total_generated, detectable = load(
+        extras, total_generated, detectable = load(
             dirs[0], 'detectable'
         )
 
         for dir in tqdm(dirs[1:]):
             try:
-                _p, _a, total, data = load(dir, 'detectable')
-                assert _p == parameters
-                assert _a == attrs
+                e, total, data = load(dir, 'detectable')
+                assert e == extras
                 total_generated += total
                 detectable = concat_dicts(detectable, data)
-            except AssertionError as e:
-                print(f'Assertion error {e} with {dir}')
+            except AssertionError as err:
+                print(f'Assertion error {err} with {dir}')
                 continue
 
         detectable['total_generated'] = total_generated
-        detectable['parameters'] = parameters
+        for k, v in extras.items():
+            if k != 'attrs':
+                detectable[k] = v
+
         detectable['mass_1_source'] = (
             detectable['mass_1'] / (1 + detectable['redshift'])
         )
         h5ify.save(
             f'{outdir}/detectable.hdf5',
-            dict(**detectable, attrs=attrs),
+            dict(**detectable, attrs=extras['attrs']),
             mode='w'
         )
 

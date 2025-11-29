@@ -155,8 +155,6 @@ def digest_args(args):
         else:
             injection_parameters[k] = catalog[k][event_index]
 
-    print(injection_parameters)
-
     true_m1 = injection_parameters.pop('mass_1')
     true_m2 = injection_parameters.pop('mass_2')
 
@@ -212,7 +210,6 @@ def digest_args(args):
             compute_duration(m1)
             for m1 in test_m1
         ])
-        print(test_m1)
         lowest_allowed_m1 = test_m1[np.where(test_durations <= duration)[0][0]]
         print(
             f'Lowest allowed primary mass: {lowest_allowed_m1} '
@@ -280,15 +277,25 @@ def digest_args(args):
             del priors['geocent_time']
 
     optimal_network_snr = catalog['network_optimal_snr'][event_index]
-    matched_filter_network_snr = catalog['network_matched_filter_snr'][event_index]
+    matched_filter_network_snr = catalog.get(
+        'network_matched_filter_snr'
+    )[event_index]
 
-    injection_optimal_network_snr = catalog['injection_network_optimal_snr'][event_index]
-    injection_matched_filter_network_snr = catalog['injection_network_matched_filter_snr'][event_index] 
+    injection_optimal_network_snr = catalog.get(
+        'injection_network_optimal_snr'
+    )[event_index]
+    injection_matched_filter_network_snr = catalog.get(
+        'injection_network_matched_filter_snr'
+    )[event_index] 
 
     rerun = rerun_with_wider_priors
 
     injection_waveform = get_waveform(args.injection_waveform)
     recovery_waveform = get_waveform(args.recovery_waveform)
+
+    check_recovery_snrs = (
+        recovery_waveform == catalog['attrs']['recovery_waveform_approximant']
+    )
 
     return (
         outdir,
@@ -317,6 +324,7 @@ def digest_args(args):
         args.reweight,
         injection_waveform,
         recovery_waveform,
+        check_recovery_snrs
     )
 
 
@@ -505,6 +513,7 @@ if __name__ == '__main__':
         reweight,
         injection_waveform,
         recovery_waveform,
+        check_recovery_snrs
     ) = digest_args(args)
 
     likelihood_class = RelativeBinningGravitationalWaveTransient
@@ -592,40 +601,41 @@ if __name__ == '__main__':
         )
 
     # 2. check if recovery snrs match
-    rec_polarizations = waveform_generator.frequency_domain_strain(
-        injection_parameters
-    )
-
-    opt_net_snr = 0
-    mf_net_snr = 0
-
-    for ifo in ifos:
-        signal_ifo = ifo.get_detector_response(
-            rec_polarizations, injection_parameters
-        )
-        opt_net_snr += ifo.optimal_snr_squared(signal=signal_ifo).real
-        mf_net_snr += np.abs(
-            ifo.matched_filter_snr(signal=signal_ifo)
-        )**2
-    opt_net_snr = np.sqrt(opt_net_snr)
-    mf_net_snr = np.sqrt(mf_net_snr)
-
-    if not np.isclose(opt_net_snr, optimal_network_snr):
-        raise ValueError(
-            'Recovery optimal network snrs dont match for '
-            f'{event_index} in {catalog_path}! '
-            f'Got {opt_net_snr} vs. {optimal_network_snr} in catalog. '
-            'Are you sure the snrs and injection parameters match?'
+    if check_recovery_snrs:
+        rec_polarizations = waveform_generator.frequency_domain_strain(
+            injection_parameters
         )
 
-    if not np.isclose(mf_net_snr, matched_filter_network_snr):
-        raise ValueError(
-            'Recovery matched filter network snrs dont match for '
-            f'{event_index} in {catalog_path}! '
-            f'Got {mf_net_snr} vs. {matched_filter_network_snr} in catalog. '
-            'Are you sure the snrs and noise seeds match? '
-            'Do you have the correct bilby version?'
-        )
+        opt_net_snr = 0
+        mf_net_snr = 0
+
+        for ifo in ifos:
+            signal_ifo = ifo.get_detector_response(
+                rec_polarizations, injection_parameters
+            )
+            opt_net_snr += ifo.optimal_snr_squared(signal=signal_ifo).real
+            mf_net_snr += np.abs(
+                ifo.matched_filter_snr(signal=signal_ifo)
+            )**2
+        opt_net_snr = np.sqrt(opt_net_snr)
+        mf_net_snr = np.sqrt(mf_net_snr)
+
+        if not np.isclose(opt_net_snr, optimal_network_snr):
+            raise ValueError(
+                'Recovery optimal network snrs dont match for '
+                f'{event_index} in {catalog_path}! '
+                f'Got {opt_net_snr} vs. {optimal_network_snr} in catalog. '
+                'Are you sure the snrs and injection parameters match?'
+            )
+
+        if not np.isclose(mf_net_snr, matched_filter_network_snr):
+            raise ValueError(
+                'Recovery matched filter network snrs dont match for '
+                f'{event_index} in {catalog_path}! '
+                f'Got {mf_net_snr} vs. {matched_filter_network_snr} in catalog. '
+                'Are you sure the snrs and noise seeds match? '
+                'Do you have the correct bilby version?'
+            )
 
     with open(f'{outdir}/pols.pkl', 'wb') as f:
         pickle.dump(waveform_polarizations, f)
