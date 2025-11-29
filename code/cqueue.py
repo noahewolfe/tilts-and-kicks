@@ -50,9 +50,9 @@ request_cpus     = {args.request_cpus}
 request_memory   = {args.request_memory}
 request_disk     = {args.request_disk}
 
-output          = {outdir}/run.out
-error           = {outdir}/run.err
-log             = {outdir}/run.log
+output          = {outdir}/run.$(Cluster).out
+error           = {outdir}/run.$(Cluster).err
+log             = {outdir}/run.$(Cluster).log
 
 queue {queue}
 """
