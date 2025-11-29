@@ -5,11 +5,6 @@ from bilby.core.prior import ConditionalPriorDict
 from bilby.core.prior import Uniform
 from bilby.core.prior import DirichletElement
 
-from likelihood import rate_ln_likelihood_and_variance
-from likelihood import shape_ln_likelihood_and_variance
-from likelihood import rate_likelihood_extras
-from likelihood import shape_likelihood_extras
-
 
 def convert_bilby_uniform_prior(prior, backend='jax'):
     if backend == 'jax':
@@ -64,7 +59,7 @@ def convert_bilby_prior(prior, backend='jax'):
             if f'{label}{i}' in prior.keys():
                 prior.pop(f'{label}{i}')
         for i in range(n - 1):
-                prior[f'{label}{i}_unnorm'] = Uniform(minimum=0, maximum=1)
+            prior[f'{label}{i}_unnorm'] = Uniform(minimum=0, maximum=1)
 
         param_keys, bounds, log_unif_prior = convert_bilby_uniform_prior(
             prior, backend='jax'
@@ -135,21 +130,29 @@ class LikelihoodWrapper(Likelihood):
                 raise ValueError('you need to provide a tobs')
 
             def fn(parameters):
+                from likelihood import rate_ln_likelihood_and_variance
+
                 return rate_ln_likelihood_and_variance(
                     tobs, posteriors, injections, density, parameters
                 )
 
             def extras(parameters):
+                from likelihood import rate_likelihood_extras
+
                 return rate_likelihood_extras(
                     tobs, posteriors, injections, density, parameters
                 )
         else:
             def fn(parameters):
+                from likelihood import shape_ln_likelihood_and_variance
+
                 return shape_ln_likelihood_and_variance(
                     posteriors, injections, density, parameters
                 )
 
             def extras(parameters):
+                from likelihood import shape_likelihood_extras
+
                 return shape_likelihood_extras(
                     posteriors, injections, density, parameters
                 )

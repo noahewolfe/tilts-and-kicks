@@ -73,6 +73,8 @@ parser.add_argument('--reweight', action='store_true')
 parser.add_argument('--injection-waveform', default='xphm')
 parser.add_argument('--recovery-waveform', default='xp')
 
+parser.add_argument('--overwrite', action='store_true')
+
 
 def get_waveform(s):
     if s not in ['IMRPhenomXP', 'IMRPhenomXPHM']:
@@ -89,7 +91,19 @@ def get_waveform(s):
 def digest_args(args):
     write_config(args)
 
+    overwrite = args.overwrite
     outdir = args.outdir
+
+    if not overwrite:
+        paths = [
+            f'{outdir}/dynesty_result.json', f'{outdir}/dynesty_result.hdf5'
+        ]
+        for res_path in paths:
+            if os.path.isfile(res_path):
+                print(f'result file already exits at {res_path}; skipping!')
+                print('done.')
+                quit()
+
     npool = args.npool
 
     nlive = args.nlive
@@ -277,14 +291,32 @@ def digest_args(args):
     recovery_waveform = get_waveform(args.recovery_waveform)
 
     return (
-        outdir, npool, catalog_path, event_index, priors, injection_parameters,
-        noise_seed, duration,
-        minimum_frequency, sampling_frequency, reference_frequency,
-        network, likelihood_kwargs, nlive, naccept, bound, proposals,
-        optimal_network_snr, matched_filter_network_snr,
-        injection_optimal_network_snr, injection_matched_filter_network_snr,
-        rerun, outdir_extras,
-        args.reweight, injection_waveform, recovery_waveform
+        outdir,
+        npool,
+        catalog_path,
+        event_index,
+        priors,
+        injection_parameters,
+        noise_seed,
+        duration,
+        minimum_frequency,
+        sampling_frequency,
+        reference_frequency,
+        network,
+        likelihood_kwargs,
+        nlive,
+        naccept,
+        bound,
+        proposals,
+        optimal_network_snr,
+        matched_filter_network_snr,
+        injection_optimal_network_snr,
+        injection_matched_filter_network_snr,
+        rerun,
+        outdir_extras,
+        args.reweight,
+        injection_waveform,
+        recovery_waveform,
     )
 
 
@@ -472,7 +504,7 @@ if __name__ == '__main__':
         outdir_extras,
         reweight,
         injection_waveform,
-        recovery_waveform
+        recovery_waveform,
     ) = digest_args(args)
 
     likelihood_class = RelativeBinningGravitationalWaveTransient

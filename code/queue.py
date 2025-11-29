@@ -34,7 +34,7 @@ if __name__ == '__main__':
 
     requirements = '(Microarch >= "x86_64-v3")' if args.avx else ''
 
-    submit = fr"""\
+    submit = fr"""
 universe         = vanilla
 executable       = /home/noah.wolfe/.conda/envs/seqpop/bin/python
 accounting_group = ligo.sim.o4.cbc.bayesianpopulations.parametric

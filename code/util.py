@@ -142,7 +142,13 @@ def make_dir_and_subdirs(outdir, subdirs):
 
 def write_config(args, outdir=None):
     outdir = outdir if outdir is not None else args.outdir
-    with open(f'{outdir}/config.json', 'w') as f:
+    config_path = f'{outdir}/config.json'
+
+    if os.path.isfile(config_path):
+        print(f'config already exists; renaming to {config_path}.old')
+        os.rename(config_path, f'{config_path}.old')
+
+    with open(config_path, 'w') as f:
         d = dict(**args.__dict__, commit=get_git_revision_short_hash())
         f.write(json.dumps(d, indent=4, sort_keys=False))
 
