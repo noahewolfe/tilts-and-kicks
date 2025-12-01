@@ -328,3 +328,10 @@ def concat_dicts(dic1, dic2):
 
 def next_power_of_2(x):
     return 1 if x == 0 else 2**(x - 1).bit_length()
+
+
+def save_key(path, key):
+    """ save JAX PRNG key data to disk"""
+    from jax.random import key_data
+    from jax.numpy import save
+    save(path, key_data(key))

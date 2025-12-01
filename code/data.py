@@ -180,7 +180,7 @@ def get_injections(
     load = False,
     save = False,
     xp=np,
-    datadir='../../data',
+    datadir='../data',
     vt_path='/home/rp.o4/offline-injections/mixtures/multirun-mixtures'
 ):
     datadir = get_datadir(datadir, catalog, pars)

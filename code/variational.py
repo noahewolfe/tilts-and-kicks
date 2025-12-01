@@ -9,7 +9,7 @@ from optax._src.linear_algebra import global_norm
 from paramax import NonTrainable
 
 
-def fit(key, flow, log_target, clip=True, lr=1e-1, steps=1_000, batch_size=1):
+def fit(key, flow, log_target, clip=True, lr=1e-1, steps=1_000, batch_size=1, final_lr=0):
     """ Train loop wrapped with some default choices for population inference
         in terms of learning rate, schedule, and optimizer.
     """
@@ -18,7 +18,7 @@ def fit(key, flow, log_target, clip=True, lr=1e-1, steps=1_000, batch_size=1):
         peak_value=lr,
         warmup_steps=0,
         decay_steps=steps,
-        end_value=0
+        end_value=final_lr
     )
 
     if clip:
@@ -27,7 +27,7 @@ def fit(key, flow, log_target, clip=True, lr=1e-1, steps=1_000, batch_size=1):
             optax.adam(learning_rate=learning_rate)
         )
     else:
-        optimizer = optax.adam(learning_rate=learning_rate) 
+        optimizer = optax.adam(learning_rate=learning_rate)
 
     flow, losses = train(
         key,

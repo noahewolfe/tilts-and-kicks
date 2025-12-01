@@ -126,8 +126,8 @@ def build_pixelpop(posteriors, injections, parameters, nbins):
     if 'redshift' in parameters.keys():
         event_ln_dvc, inj_ln_dvc = get_comoving_factors(posteriors, injections)
     else:
-        event_ln_dvc = jnp.zeros_like(event_bins)
-        inj_ln_dvc = jnp.zeros_like(inj_bins)
+        event_ln_dvc = jnp.zeros_like(event_bins[0])
+        inj_ln_dvc = jnp.zeros_like(inj_bins[0])
 
     return (
         bin_axes, event_bins, inj_bins, event_ln_dvc, inj_ln_dvc, log_car_prior

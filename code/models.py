@@ -459,3 +459,45 @@ def bpl2p_plz_truncnormmag_isogausstilt(dataset, parameters):
     )
 
     return p_m1 * p_q_given_m1 * p_z * p_a1 * p_a2 * p_cos_tilts
+
+
+def log_truncated_powerlaw(x, alpha, xmin, xmax):
+    cut = (xmin <= x) * (x <= xmax)
+
+    norm = (xmax**(alpha + 1) - xmin**(alpha + 1)) / (alpha + 1)
+
+    log_prob = jnp.where(
+        cut,
+        alpha * jnp.log(x),
+        -jnp.inf
+    )
+
+    return log_prob - norm
+
+
+def log_plq_given_m1(dataset, parameters):
+    """ simple powerlaw in q, no smoothing """
+    return log_truncated_powerlaw(
+        dataset['mass_ratio'],
+        parameters['beta'],
+        parameters['mmin'] / jnp.exp(dataset['log_mass_1']),
+        1.0
+    )
+
+
+def log_iid_spin_mag_truncnorm(dataset, parameters):
+    p_a1 = jnp.log(truncnorm(
+        dataset['a_1'],
+        parameters['mu_chi'],
+        parameters['sigma_chi'],
+        high=1,
+        low=0
+    ))
+    p_a2 = jnp.log(truncnorm(
+        dataset['a_2'],
+        parameters['mu_chi'],
+        parameters['sigma_chi'],
+        high=1,
+        low=0
+    ))
+    return p_a1 + p_a2
