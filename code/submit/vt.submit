@@ -1,0 +1,18 @@
+universe        = vanilla
+executable      = vt.sh
+accounting_group = ligo.sim.o4.cbc.bayesianpopulations.parametric
+
+arguments       = $(Process)
+
+# Keep your normal shell environment (for HOME, etc.)
+getenv          = True
+
+request_cpus    = 1
+request_memory  = 4 GB
+request_disk = 1 GB
+
+output          = condor_logs/mock_$(Process).out
+error           = condor_logs/mock_$(Process).err
+log             = condor_logs/mock_$(Process).log
+
+queue 100

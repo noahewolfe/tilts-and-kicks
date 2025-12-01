@@ -4,6 +4,7 @@ from glob import glob
 
 import h5py
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 
 from bilby.gw.prior import UniformSourceFrame
@@ -94,7 +95,7 @@ def get_posteriors(
     load = False,
     save = False,
     xp = np,
-    datadir = '../../data',
+    datadir = '../data',
     seed = 1
 ):
     datadir = get_datadir(datadir, catalog, pars)
@@ -266,3 +267,7 @@ def get_injections(
         injections[k] = xp.array(injections[k]).squeeze()
 
     return injections
+
+
+def get_gwtc4_bbh():
+    '/work/submit/newolfe/lvk-data/GWTC-4/RP/events_list_bbh_only.txt'

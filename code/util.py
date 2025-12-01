@@ -9,6 +9,12 @@ def plot_corner(xs, fname=None, trim=None, **kwargs):
 
     """ Make corner plots, bilby-style. """
 
+    if isinstance(xs, dict):
+        labels = kwargs.get('labels', list(xs.keys()))
+        kwargs['labels'] = labels
+        unpacked = np.column_stack([xs[k] for k in xs.keys()])
+        return plot_corner(unpacked, fname=fname, trim=trim, **kwargs)
+
     if isinstance(xs, Array):
         xs = np.array(xs)
 
@@ -136,7 +142,13 @@ def make_dir_and_subdirs(outdir, subdirs):
 
 def write_config(args, outdir=None):
     outdir = outdir if outdir is not None else args.outdir
-    with open(f'{outdir}/config.json', 'w') as f:
+    config_path = f'{outdir}/config.json'
+
+    if os.path.isfile(config_path):
+        print(f'config already exists; renaming to {config_path}.old')
+        os.rename(config_path, f'{config_path}.old')
+
+    with open(config_path, 'w') as f:
         d = dict(**args.__dict__, commit=get_git_revision_short_hash())
         f.write(json.dumps(d, indent=4, sort_keys=False))
 
@@ -163,7 +175,7 @@ def scan(fn, desc=None):
     return tracked
 
 
-def plot_loss(loss, log=False, zoom=False):
+def plot_loss(loss, log=False, zoom=False, outpath=None):
     import numpy as np
     import matplotlib.pyplot as plt
 
@@ -179,6 +191,12 @@ def plot_loss(loss, log=False, zoom=False):
 
     if zoom:
         ax.set_ylim(np.nanmin(loss) - 5, np.nanmin(loss) + 50)
+
+    ax.set_xlabel('step')
+    ax.set_ylabel('loss')
+
+    if outpath is not None:
+        fig.savefig(outpath)
 
     return fig, ax
 
@@ -283,3 +301,30 @@ def monotonic_select(thresholds, values, right_closed_left_open=True):
         idx = jnp.searchsorted(thresholds, x, side=side)  # in [0, len(thresholds)]
         return values[idx]  # jnp.take handles array idx too
     return func
+
+
+def calc_chieff(q, a1, a2, ct1, ct2):
+    numer = a1 * ct1 + q * a2 * ct2
+    denom = 1 + q
+    return numer / denom
+
+
+def list_to_dict(data):
+    """ convert a list of dicts to dict of lists """
+    result = {}
+    for d in data:
+        for key, value in d.items():
+            result.setdefault(key, []).append(value)
+    return result
+
+
+def concat_dicts(dic1, dic2):
+    import numpy as np
+    assert dic1.keys() == dic2.keys()
+    result = {}
+    for k in dic1.keys():
+        result[k] = np.concatenate((dic1[k], dic2[k]))
+    return result
+
+def next_power_of_2(x):
+    return 1 if x == 0 else 2**(x - 1).bit_length()
