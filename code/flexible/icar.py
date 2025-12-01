@@ -17,8 +17,8 @@ from pixelpop.utils.nearest_neighbor import create_CAR_coupling_matrix
 from pixelpop.utils.data import place_in_bins
 from pixelpop.utils.data import clean_par
 
+from priors import convert_bilby_prior
 from util import logtrapz
-from bilby_util import convert_bilby_uniform_prior
 
 
 def fuse_priors(
@@ -43,16 +43,19 @@ def fuse_priors(
     (
         param_keys,
         param_bounds,
-        log_param_prior
-    ) = convert_bilby_uniform_prior(prior)
+        log_param_prior,
+        fold
+    ) = convert_bilby_prior(prior)
 
     def log_prior(parameters):
         return log_param_prior(parameters) + log_rate_prior(parameters)
 
-    total_nbins = nbins**dimension
-    bounds = [list(b) for b in param_bounds] + [None for _ in range(total_nbins)]
+    bounds = (
+        [list(b) for b in param_bounds]
+        + [None for _ in range(nbins**dimension)]
+    )
 
-    return param_keys, bounds, log_prior
+    return param_keys, bounds, log_prior, fold
 
 
 def unravel(param_keys, nbins, dimension, x):

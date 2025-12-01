@@ -136,46 +136,43 @@ def get_model(parameters_for_pixelpop):
         from models import truncnorm
 
         def log_density(dataset, parameters):
-            lam_tilde_0 = parameters['lam_tilde_0']
-            lam_tilde_1 = parameters['lam_tilde_1']
-            lam_tilde_2 = parameters['lam_tilde_2']
-
-            norm = lam_tilde_0 + lam_tilde_1 + lam_tilde_2
-            parameters['lam0'] = lam_tilde_0 / norm
-            parameters['lam1'] = lam_tilde_1 / norm
-            parameters['lam2'] = lam_tilde_2 / norm
-
-            #p_m1qzmag = bplm1q_plz_truncnormmag(dataset, parameters)
+            #if 'lam_2' not in parameters.keys():
+            #    if (
+            #        'lam_0' in parameters.keys()
+            #        and 'lam_1' in parameters.keys()
+            #    ):
+            #        parameters['lam_2'] = (
+            #            1 - parameters['lam_0'] - parameters['lam_1']
+            #        )
 
             log_p_m1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass(
                 dataset,
-                alpha_1=parameters['alpha1'],
-                alpha_2=parameters['alpha2'],
-                mmin=parameters['mmin'],
-                break_mass=parameters['mbreak'],
-                delta_m_1=parameters['delta_m'],
-                lam_fractions=[
-                    parameters['lam0'],
-                    parameters['lam1'],
-                    parameters['lam2']
-                ],
-                mpp_1=parameters['mpp1'],
-                sigpp_1=parameters['sigpp1'],
-                mpp_2=parameters['mpp2'],
-                sigpp_2=parameters['sigpp2'],
+                alpha_1=parameters['alpha_1'],
+                alpha_2=parameters['alpha_2'],
+                mmin=parameters['mlow_1'],
+                break_mass=parameters['break_mass'],
+                delta_m_1=parameters['delta_m_1'],
+                lam_fractions=(
+                    parameters['lam_0'],
+                    parameters['lam_1'],
+                    parameters['lam_2']
+                ),
+                mpp_1=parameters['mpp_1'],
+                sigpp_1=parameters['sigpp_1'],
+                mpp_2=parameters['mpp_2'],
+                sigpp_2=parameters['sigpp_2'],
+                mmax=300.0,
+                gaussian_mass_maximum=100.0
             )
-            #p_m1 = jnp.exp(log_p_m1)
 
             log_p_q = PowerlawPlusPeak_MassRatio(
                 dataset,
                 slope=parameters['beta'],
-                minimum=parameters['mmin'],
-                delta_m=parameters['delta_m']
+                minimum=parameters['mlow_1'],#parameters['mmin'],
+                delta_m=parameters['delta_m_1'],#parameters['delta_m']
             )
-            #p_q = jnp.exp(log_p_q)
 
             log_p_z = log_powerlaw_redshift(dataset, parameters)
-            #p_z = jnp.exp(log_p_z)
 
             p_a1 = truncnorm(
                 dataset['a_1'],
@@ -192,8 +189,6 @@ def get_model(parameters_for_pixelpop):
                 low=0
             )
 
-            #p_tilt = full_tilt_model(dataset, parameters)
-
             return log_p_m1 + log_p_q + log_p_z + jnp.log(p_a1) + jnp.log(p_a2)
 
         """
@@ -207,11 +202,11 @@ def get_model(parameters_for_pixelpop):
                         1 - parameters['lam_0'] - parameters['lam_1']
                     )
 
-            log_prob = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+            log_prob = BrokenPowerlawPlusTwoPeaks_PrimaryMass(
                 dataset,
                 alpha_1=parameters['alpha_1'],
                 alpha_2=parameters['alpha_2'],
-                mlow_1=parameters['mlow_1'],
+                mmin=parameters['mlow_1'],
                 break_mass=parameters['break_mass'],
                 delta_m_1=parameters['delta_m_1'],
                 lam_fractions=(
@@ -227,16 +222,11 @@ def get_model(parameters_for_pixelpop):
                 gaussian_mass_maximum=100.0
             )
 
-            if 'log_mass_1' in dataset.keys():
-                m1 = jnp.exp(dataset['log_mass_1'])
-            else:
-                m1 = dataset['mass_1']
-
-            log_prob += log_truncated_powerlaw(
-                dataset['mass_ratio'],
-                parameters['beta'],
-                parameters['mlow_1'] / m1,
-                1.0
+            log_prob += PowerlawPlusPeak_MassRatio(
+                dataset,
+                slope=parameters['beta'],
+                minimum=parameters['mlow_1'],
+                delta_m=parameters['delta_m_1']
             )
 
             log_prob += log_powerlaw_redshift(dataset, parameters)
@@ -246,7 +236,10 @@ def get_model(parameters_for_pixelpop):
             return log_prob
         """
     else:
-        raise ValueError(f'Bad combination of parameters for pixelpop: {parameters_for_pixelpop}')
+        raise ValueError(
+            'Bad combination of parameters for pixelpop:'
+            f'{parameters_for_pixelpop}'
+        )
 
     return log_density
 
@@ -300,18 +293,20 @@ if __name__ == '__main__':
     log_density = get_model(parameters_for_pixelpop)
     ignore_keys = get_ignore_keys(parameters_for_pixelpop)
 
-    param_keys, bounds, log_prior = fuse_priors(
-        prior='./priors/test.prior',  # TODO: test
+    param_keys, bounds, log_prior, fold = fuse_priors(
+        prior='./priors/lvk.prior',
         log_rate_prior=log_rate_prior,
         nbins=nbins,
         dimension=dimension,
         ignore_keys=ignore_keys
     )
 
-    unravel = partial(unravel, param_keys, nbins, dimension)
+    def pack(x):
+        return fold(unravel(param_keys, nbins, dimension, x))
+
     taper = partial(taper, maximum_variance)
 
-    '''test_parameters = {
+    test_parameters = {
         "alpha_1": 1.81,
         "alpha_2": 4.16,
         "beta": 1.78,
@@ -332,8 +327,8 @@ if __name__ == '__main__':
         "sigpp_1": 0.79,
         "sigpp_2": 2.65,
         "xi_spin": 0.94,
-    }'''
-    test_parameters = {'alpha1': 4.605874906846779, 'alpha2': 8.835278710477295, 'mbreak': 32.43731335596479, 'mpp1': 14.595596069166115, 'sigpp1': 0.25951732739587285, 'mpp2': 27.705466772233606, 'sigpp2': 4.890859773474901, 'delta_m': 3.657104208444623, 'mmin': 5.06341043483552, 'lam_tilde_0': 0.9548639995981757, 'lam_tilde_1': 0.7619448230244875, 'lam_tilde_2': 0.7284467719182006, 'beta': 0.5176796465274656, 'lamb': 2.1223505768482376, 'mu_chi': 0.7853617729755967, 'sigma_chi': 0.9595484591320099}
+    }
+    #test_parameters = {'alpha1': 4.605874906846779, 'alpha2': 8.835278710477295, 'mbreak': 32.43731335596479, 'mpp1': 14.595596069166115, 'sigpp1': 0.25951732739587285, 'mpp2': 27.705466772233606, 'sigpp2': 4.890859773474901, 'delta_m': 3.657104208444623, 'mmin': 5.06341043483552, 'lam_tilde_0': 0.9548639995981757, 'lam_tilde_1': 0.7619448230244875, 'lam_tilde_2': 0.7284467719182006, 'beta': 0.5176796465274656, 'lamb': 2.1223505768482376, 'mu_chi': 0.7853617729755967, 'sigma_chi': 0.9595484591320099}
     test_parameters['log_merger_rate_density'] = jax.random.normal(
         jax.random.key(18), (nbins, nbins)
     )
@@ -351,11 +346,11 @@ if __name__ == '__main__':
         inj_ln_dvc,
     )
 
-    print('grad of lnl:', jax.grad(lambda x: rate_likelihood_and_variance(x)[0])(test_parameters))
+    #print('grad of lnl:', jax.grad(lambda x: rate_likelihood_and_variance(x)[0])(test_parameters))
 
     def wrapped_likelihood_and_prior(x):
         """ wrap the likelihood and prior with a pre-ravel """
-        parameters = unravel(x)
+        parameters = pack(x)
         ln_lkl, variance = rate_likelihood_and_variance(parameters)
         return ln_lkl, variance, log_prior(parameters)
 
@@ -395,9 +390,10 @@ if __name__ == '__main__':
     )
     log_post = lkl + lpr
 
-    samples = jax.vmap(unravel)(samples)
+    samples = jax.vmap(pack)(samples)
 
-    stats = estimate_convergence(log_post, log_q)
+    mask = var < maximum_variance
+    stats = estimate_convergence(log_post[mask], log_q[mask])
 
     print(
         f"eff : {stats['eff']}, kss : {stats['kss']}"
