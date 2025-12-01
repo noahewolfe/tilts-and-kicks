@@ -179,7 +179,8 @@ def get_injections(
     load = False,
     save = False,
     xp=np,
-    datadir='../../data'
+    datadir='../../data',
+    vt_path='/home/rp.o4/offline-injections/mixtures/multirun-mixtures'
 ):
     datadir = get_datadir(datadir, catalog, pars)
     datapath = f'{datadir}/injections.h5'
@@ -190,7 +191,6 @@ def get_injections(
             injections[k] = xp.array(injections[k]).squeeze()
         return injections
 
-    vt_path = '/home/rp.o4/offline-injections/mixtures/multirun-mixtures'
     if catalog == 'GWTC-3':
         vt_path = f'{vt_path}_20250503134659UTC/mixture-semi_o1_o2-real_o3/mixture-semi_o1_o2-real_o3-cartesian_spins_20250503134659UTC.hdf'
     elif catalog == 'GWTC-4':
