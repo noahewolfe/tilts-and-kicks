@@ -10,6 +10,7 @@ jax.config.update('jax_enable_x64', True)
 import jax.numpy as jnp
 
 import h5ify
+from jax_tqdm import scan_tqdm
 
 from data import get_posteriors
 from data import get_injections
@@ -306,33 +307,6 @@ if __name__ == '__main__':
 
     taper = partial(taper, maximum_variance)
 
-    test_parameters = {
-        "alpha_1": 1.81,
-        "alpha_2": 4.16,
-        "beta": 1.78,
-        "break_mass": 32.51,
-        "delta_m_1": 2.51,
-        "lam_0": 0.11,
-        "lam_1": 0.88,
-        "lam_2": 0.01,
-        "lamb": 2.61,
-        "mlow_1": 3.25,
-        "mmax": 300.0,
-        "mpp_1": 9.2,
-        "mpp_2": 33.83,
-        "mu_chi": 0.1,
-        "mu_spin": 0.23,
-        "sigma_chi": 0.34,
-        "sigma_spin": 0.53,
-        "sigpp_1": 0.79,
-        "sigpp_2": 2.65,
-        "xi_spin": 0.94,
-    }
-    #test_parameters = {'alpha1': 4.605874906846779, 'alpha2': 8.835278710477295, 'mbreak': 32.43731335596479, 'mpp1': 14.595596069166115, 'sigpp1': 0.25951732739587285, 'mpp2': 27.705466772233606, 'sigpp2': 4.890859773474901, 'delta_m': 3.657104208444623, 'mmin': 5.06341043483552, 'lam_tilde_0': 0.9548639995981757, 'lam_tilde_1': 0.7619448230244875, 'lam_tilde_2': 0.7284467719182006, 'beta': 0.5176796465274656, 'lamb': 2.1223505768482376, 'mu_chi': 0.7853617729755967, 'sigma_chi': 0.9595484591320099}
-    test_parameters['log_merger_rate_density'] = jax.random.normal(
-        jax.random.key(18), (nbins, nbins)
-    )
-
     ttot = injections.pop('time')
     rate_likelihood_and_variance = partial(
         rate_likelihood_and_variance,
@@ -345,8 +319,6 @@ if __name__ == '__main__':
         event_ln_dvc,
         inj_ln_dvc,
     )
-
-    #print('grad of lnl:', jax.grad(lambda x: rate_likelihood_and_variance(x)[0])(test_parameters))
 
     def wrapped_likelihood_and_prior(x):
         """ wrap the likelihood and prior with a pre-ravel """
@@ -385,15 +357,25 @@ if __name__ == '__main__':
 
     samples, log_q = flow.sample_and_log_prob(subkey, (10_000,))
 
-    lkl, var, lpr = jax.lax.map(
-        wrapped_likelihood_and_prior, samples, batch_size=1_000
+    @scan_tqdm(10_000, desc='log_p')
+    def step(carry, x):
+        _, parameters = x
+        return None, wrapped_likelihood_and_prior(parameters)
+
+    _, (lkl, var, lpr) = jax.lax.scan(
+        step, None, (jnp.arange(10_000), samples)
     )
     log_post = lkl + lpr
 
     samples = jax.vmap(pack)(samples)
 
     mask = var < maximum_variance
-    stats = estimate_convergence(log_post[mask], log_q[mask])
+
+    if jnp.sum(mask) == 0:
+        stats = dict()
+        print('warning! no samples found below variance cut!')
+    else:
+        stats = estimate_convergence(log_post[mask], log_q[mask])
 
     print(
         f"eff : {stats['eff']}, kss : {stats['kss']}"
