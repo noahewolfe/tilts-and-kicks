@@ -1,0 +1,27 @@
+{
+    "outdir": "../data/inference/pixelpop/vi/test-ct1-ct2",
+    "flow": "bnaf",
+    "flow_kwargs": {
+        "nn_block_dim": 8
+    },
+    "train_kwargs": {
+        "steps": 10,
+        "batch_size": 1,
+        "lr": 0.001,
+        "final_lr": 0.001
+    },
+    "nbins": 10,
+    "cut": null,
+    "parameters": {
+        "cos_tilt_1": [
+            -1.0,
+            1.0
+        ],
+        "cos_tilt_2": [
+            -1.0,
+            1.0
+        ]
+    },
+    "maximum_variance": 1.0,
+    "commit": "fe1cd17"
+}

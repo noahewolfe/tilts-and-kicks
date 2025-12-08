@@ -82,9 +82,6 @@ def train(
     steps,
     optimizer=None,
     batch_size=1,
-    map_batch_size='all',
-    reject_non_finite=False,
-    state=None,
     return_state=False
 ):
     params, static = eqx.partition(
@@ -93,71 +90,23 @@ def train(
         is_leaf=lambda leaf: isinstance(leaf, NonTrainable),
     )
 
-    """if map_batch_size == 'all':
-        def batch_log_target(step):
-            return jax.vmap(lambda x: log_target(x, step))
-    else:
-        def batch_log_target(step):
-            return lambda xs: jax.lax.map(
-                lambda x: log_target(x, step),
-                xs,
-                batch_size=map_batch_size
-            )
-    """
+    def loss_fn(params, key, step):
+        flow = eqx.combine(params, static)
+        samples, log_flows = flow.sample_and_log_prob(key, (batch_size,))
+        log_targets = jax.vmap(lambda x: log_target(x, step))(samples)
+        return reverse_kl(log_targets, log_flows)
 
-    if map_batch_size == 'all':
-        def loss_fn(params, key, step):
-            flow = eqx.combine(params, static)
-            samples, log_flows = flow.sample_and_log_prob(key, (batch_size,))
-            log_targets = jax.vmap(lambda x: log_target(x, step))(samples)
-            return reverse_kl(log_targets, log_flows)
-    else:
-        def loss_fn(params, key, step):
-            flow = eqx.combine(params, static)
-            samples, log_flows = flow.sample_and_log_prob(key, (batch_size,))
-            log_targets = jax.lax.map(
-                lambda x: log_target(x, step),
-                samples,
-                batch_size=map_batch_size
-            )
-            return reverse_kl(log_targets, log_flows)
+    state = optimizer.init(params)
 
-    if state is None:
-        state = optimizer.init(params)
-
-    if reject_non_finite:
-        @jax_tqdm.scan_tqdm(steps, desc='train')
-        @eqx.filter_jit
-        def update(carry, step):
-            key, params, state = carry
-            key, _key = jax.random.split(key)
-            loss, grad = eqx.filter_value_and_grad(loss_fn)(params, _key)
-
-            def do(grad, params, state):
-                updates, state = optimizer.update(grad, state, params)
-                params = eqx.apply_updates(params, updates)
-                return (params, state)
-
-            grad_norm = global_norm(grad)
-
-            (params, state) = jax.lax.cond(
-                jnp.isfinite(loss) & jnp.isfinite(grad_norm),
-                do,
-                lambda grad, params, state: (params, state),
-                grad, params, state
-            )
-
-            return (key, params, state), (loss, grad_norm)
-    else:
-        @jax_tqdm.scan_tqdm(steps, desc='train')
-        @eqx.filter_jit
-        def update(carry, step):
-            key, params, state = carry
-            key, _key = jax.random.split(key)
-            loss, grad = eqx.filter_value_and_grad(loss_fn)(params, _key, step)
-            updates, state = optimizer.update(grad, state, params)
-            params = eqx.apply_updates(params, updates)
-            return (key, params, state), loss
+    @jax_tqdm.scan_tqdm(steps, desc='train')
+    @eqx.filter_jit
+    def update(carry, step):
+        key, params, state = carry
+        key, _key = jax.random.split(key)
+        loss, grad = eqx.filter_value_and_grad(loss_fn)(params, _key, step)
+        updates, state = optimizer.update(grad, state, params)
+        params = eqx.apply_updates(params, updates)
+        return (key, params, state), loss
 
     (key, params, state), losses = jax.lax.scan(
         update, (key, params, state), jnp.arange(steps),

@@ -62,7 +62,7 @@ def draw_maxwellian_velocity(key, rms):
 
 
 def beefy_term(beta, u_vec):
-    ux, uy, uz = u_vec 
+    ux, uy, uz = u_vec
     return 2 * beta - ux**2 - (uy + 1)**2 - uz**2
 
 

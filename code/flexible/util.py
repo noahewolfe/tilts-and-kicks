@@ -326,20 +326,8 @@ def concat_dicts(dic1, dic2):
         result[k] = np.concatenate((dic1[k], dic2[k]))
     return result
 
-
 def next_power_of_2(x):
     return 1 if x == 0 else 2**(x - 1).bit_length()
-
-
-def compute_log_evidence_and_neff(log_weights):
-    """ numerically-stable log-evidence and effective sample size """
-    import numpy as np
-    from scipy.special import logsumexp
-    n = len(log_weights)
-    log_evidence = logsumexp(log_weights) - np.log(n)
-    log_norm_weights = log_weights - log_evidence - np.log(n)
-    neff = np.exp(-logsumexp(2 * log_norm_weights))
-    return neff, log_evidence
 
 
 def save_key(path, key):
