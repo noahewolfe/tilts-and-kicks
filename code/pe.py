@@ -24,6 +24,7 @@ from bilby.gw.source import (
 )
 from bilby.gw.conversion import convert_to_lal_binary_black_hole_parameters
 from bilby.gw.likelihood import RelativeBinningGravitationalWaveTransient
+from bilby.gw.likelihood import GravitationalWaveTransient
 
 from bilby_util import get_network
 
@@ -78,7 +79,7 @@ parser.add_argument('--injection-waveform', default='xphm')
 parser.add_argument('--recovery-waveform', default='xp')
 
 parser.add_argument('--overwrite', action='store_true')
-
+parser.add_argument('--use-full-likelihood', action='store_true')
 
 def get_waveform(s):
     if s not in ['IMRPhenomXP', 'IMRPhenomXPHM']:
@@ -260,11 +261,13 @@ def digest_args(args):
         injection_parameters['luminosity_distance'] * 4.2 + delta_dl_bound
     )
 
-    fiducial_parameters = deepcopy(injection_parameters)
-
     likelihood_kwargs = dict()
-    likelihood_kwargs['fiducial_parameters'] = fiducial_parameters
-    likelihood_kwargs['epsilon'] = 0.025
+   
+    use_full_likelihood = args.use_full_likelihood 
+    if not use_full_likelihood:
+        fiducial_parameters = deepcopy(injection_parameters)
+        likelihood_kwargs['fiducial_parameters'] = fiducial_parameters
+        likelihood_kwargs['epsilon'] = 0.025
 
     reference_frame = args.reference_frame
     if reference_frame != 'sky':
@@ -340,25 +343,32 @@ def digest_args(args):
         reweight,
         injection_waveform,
         recovery_waveform,
-        check_recovery_snrs
+        check_recovery_snrs,
+        use_full_likelihood
     )
 
 
 def get_waveform_generator(
     duration, minimum_frequency, sampling_frequency, reference_frequency,
-    waveform_approximant, phenomxprecversion
+    waveform_approximant, phenomxprecversion, relative_binning=True
 ):
     waveform_arguments = dict(
         waveform_approximant=waveform_approximant,
         reference_frequency=reference_frequency,
         minimum_frequency=minimum_frequency,
         PhenomXPrecVersion=phenomxprecversion,
-        fiducial=1
     )
+
+    if relative_binning:
+        waveform_arguments['fiducial'] = 1
 
     print(f'waveform_arguments = {waveform_arguments}')
 
-    frequency_domain_source_model = lal_binary_black_hole_relative_binning
+    if relative_binning:
+        frequency_domain_source_model = lal_binary_black_hole_relative_binning
+    else:
+        frequency_domain_source_model = lal_binary_black_hole
+
     return waveform_arguments, bilby.gw.WaveformGenerator(
         duration=duration,
         sampling_frequency=sampling_frequency,
@@ -498,6 +508,8 @@ def combine(outdir, exclude=[], append=False):
                 )
 
 
+phenomxprecversion = 104
+
 if __name__ == '__main__':
     print(f'using: {get_git_revision_short_hash()}')
 
@@ -529,11 +541,14 @@ if __name__ == '__main__':
         reweight,
         injection_waveform,
         recovery_waveform,
-        check_recovery_snrs
+        check_recovery_snrs,
+        use_full_likelihood
     ) = digest_args(args)
 
-    likelihood_class = RelativeBinningGravitationalWaveTransient
-    phenomxprecversion = 104
+    if use_full_likelihood:
+        likelihood_class = GravitationalWaveTransient
+    else:
+        likelihood_class = RelativeBinningGravitationalWaveTransient
 
     if rerun:
         outdir += '_rerun'
@@ -544,13 +559,13 @@ if __name__ == '__main__':
     print('--- \\ waveform_generator for likelihood evaluations / ---')
     waveform_arguments, waveform_generator = get_waveform_generator(
         duration, minimum_frequency, sampling_frequency, reference_frequency,
-        recovery_waveform, phenomxprecversion
+        recovery_waveform, phenomxprecversion, relative_binning=not use_full_likelihood
     )
 
     print('--- \\ waveform_generator for the injection / ---')
     _, injection_waveform_generator = get_waveform_generator(
         duration, minimum_frequency, sampling_frequency, reference_frequency,
-        injection_waveform, phenomxprecversion
+        injection_waveform, phenomxprecversion, relative_binning=not use_full_likelihood
     )
 
     ifos = get_network(
@@ -747,7 +762,7 @@ if __name__ == '__main__':
 
     if reweight and isinstance(
         likelihood,
-        bilby.gw.likelihood.RelativeBinningGravitationalWaveTransient
+        RelativeBinningGravitationalWaveTransient
     ):
         print('main run done-- reweighting!')
 
@@ -763,7 +778,7 @@ if __name__ == '__main__':
             parameter_conversion=convert_to_lal_binary_black_hole_parameters,
             waveform_arguments=alt_waveform_arguments
         )
-        alt_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
+        alt_likelihood = GravitationalWaveTransient(
             interferometers=ifos,
             waveform_generator=alt_waveform_generator
         )
@@ -789,22 +804,12 @@ if __name__ == '__main__':
 
             return np.array(log_weights)
 
-        """
-            weights = list()
-        for ii in trange(len(result.posterior)):
-            parameters = dict(result.posterior.iloc[ii])
-            likelihood.parameters.update(parameters)
-            alt_likelihood.parameters.update(parameters)
-            weights.append(
-                alt_likelihood.log_likelihood_ratio()
-                - likelihood.log_likelihood_ratio()
-            )
-        """
         log_weights = parallel_reweight(result.posterior, npool=npool)
         slw, kss = psislw(log_weights, normalize=False)        
         neff, log_z = compute_log_evidence_and_neff(log_weights)
         efficiency = neff / len(log_weights) * 100
         print(f'Reweighting efficiency is {efficiency:.5f}%')
+
         print(f'Binned vs unbinned log Bayes factor is {log_z:.5f}')
         print(f'Pareto shape is {kss:.5f}')
 
