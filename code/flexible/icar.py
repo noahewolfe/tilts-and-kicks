@@ -117,7 +117,7 @@ def build_pixelpop(posteriors, injections, parameters, nbins):
         )
         return dist.log_prob(log_rates)
 
-    event_bins, inj_bins, bin_axes, _ = place_in_bins(
+    event_bins, inj_bins, bin_axes, log_dV = place_in_bins(
         list(parameters.keys()),
         posteriors,
         injections,
@@ -133,7 +133,7 @@ def build_pixelpop(posteriors, injections, parameters, nbins):
         inj_ln_dvc = jnp.zeros_like(inj_bins[0])
 
     return (
-        bin_axes, event_bins, inj_bins, event_ln_dvc, inj_ln_dvc, log_car_prior
+        bin_axes, event_bins, inj_bins, event_ln_dvc, inj_ln_dvc, log_car_prior, log_dV
     )
 
 
@@ -149,6 +149,31 @@ def log_rate_prior(log_car_prior, parameters):
     return logtrapz(log_ys, jnp.exp(log_sigma))
 
 
+def log_binned_rates(parameters, bins, ln_dvc):
+    log_rates = parameters['log_merger_rate_density']
+    return log_rates[bins] + ln_dvc
+
+
+def log_binned_rates_cond(log_dV, parameters, bins, ln_dvc):
+    # assumes the last parameter is iid with second to last and correlated
+    dimension = len(bins)
+    assert dimension >= 3
+
+    log_rates = parameters['log_merger_rate_density']
+    log_rates_01 = log_binned_rates(parameters, bins[:-1], ln_dvc[:-1])
+    
+    # marg over all but first param; lifted from https://git.ligo.org/jack.heinzel/pixelpop/-/blob/main/pixelpop/models/probabilistic.py#L317
+    # we marg over all but the second-to-last param to get R(\theta_0)
+    normalization = logsumexp(log_rates) + jnp.sum(log_dV)
+    i = 0
+    sum_axes = tuple(jnp.arange(dimension)[jnp.r_[0:i, i + 1:dimension - 1]])
+    log_rates_0 = logsumexp(log_rates - normalization, axis=sum_axes) + jnp.sum(log_dV[:i]) + jnp.sum(log_dV[i+1:])
+
+    log_density_2 = log_rates_01 - log_rates_0
+
+    return log_rates_01 + log_density_2 + ln_dvc[-1]
+
+
 def rate_likelihood_and_variance(
     live_time,
     posteriors,
@@ -158,22 +183,19 @@ def rate_likelihood_and_variance(
     inj_bins,
     event_ln_dvc,
     inj_ln_dvc,
-    parameters
+    parameters,
+    log_binned_rates=log_binned_rates
 ):
     """ log-likelihood and variance of log-likelihood estimator """
-    log_rates = parameters['log_merger_rate_density']
-
     log_pe_weights = (
-        log_rates[event_bins]
+        log_binned_rates(parameters, event_bins, event_ln_dvc)
         + log_density(posteriors, parameters)
         - posteriors['log_prior']
-        + event_ln_dvc
     )
     log_vt_weights = (
-        log_rates[inj_bins]
+        log_binned_rates(parameters, inj_bins, inj_ln_dvc)    
         + log_density(injections, parameters)
         - injections['log_prior']
-        + inj_ln_dvc
     )
 
     event_weights = log_pe_weights
@@ -202,6 +224,68 @@ def rate_likelihood_and_variance(
     ln_likelihood_variance = pe_var + vt_var
 
     return ln_likelihood, ln_likelihood_variance
+
+
+
+def rate_likelihood_and_variance_iid_tilts(
+    live_time,
+    posteriors,
+    injections,
+    log_density,
+    event_bins,
+    inj_bins,
+    event_ln_dvc,
+    inj_ln_dvc,
+    parameters
+):
+    """ log-likelihood and variance of log-likelihood estimator """
+    log_rates = parameters['log_merger_rate_density']
+
+    cost2_event_bins = event_bins[-1] 
+
+    log_pe_weights = (
+        log_rates[event_bins[:-1]]
+        + log_density(posteriors, parameters)
+        - posteriors['log_prior']
+        + event_ln_dvc
+    )
+    log_vt_weights = (
+        log_rates[inj_bins[:-1]]
+        + log_density(injections, parameters)
+        - injections['log_prior']
+        + inj_ln_dvc
+    )
+
+    # model for cos_t2:
+    
+
+    event_weights = log_pe_weights
+    denominator_weights = log_vt_weights
+
+    ninj = injections['total_generated']
+
+    nobs, npe = event_weights.shape
+    numerators = logsumexp(event_weights, axis=1) - jnp.log(npe)
+    denominator = logsumexp(denominator_weights) - jnp.log(ninj)
+
+    pe_ln_likelihood = jnp.sum(numerators)
+
+    nexp = live_time * jnp.exp(denominator)
+    vt_ln_likelihood = nobs * jnp.log(live_time) - nexp
+    ln_likelihood = pe_ln_likelihood + vt_ln_likelihood
+
+    square_sums = logsumexp(2 * event_weights, axis=1) - 2 * jnp.log(npe)
+    square_sum = logsumexp(2 * denominator_weights) - 2 * jnp.log(ninj)
+
+    pe_var = jnp.sum(jnp.exp(square_sums - 2 * numerators) - 1 / npe)
+    vt_var = live_time**2 * (
+        jnp.exp(square_sum) - jnp.exp(2 * denominator) / ninj
+    )
+
+    ln_likelihood_variance = pe_var + vt_var
+
+    return ln_likelihood, ln_likelihood_variance
+
 
 
 def clean_data(data, min_m=3, max_m=150, max_z=1.45, remove=False):
