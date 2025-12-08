@@ -6,11 +6,14 @@ import pickle
 import argparse
 from shutil import move
 from copy import deepcopy
+from multiprocessing import Pool
 
 import h5py
 import h5ify
 import numpy as np
 from tqdm import trange
+from tqdm import tqdm
+from arviz import psislw
 
 import bilby
 from bilby.core.result import read_in_result
@@ -27,6 +30,7 @@ from bilby_util import get_network
 from util import get_git_revision_short_hash
 from util import next_power_of_2
 from util import write_config
+from util import compute_log_evidence_and_neff
 
 parameter_keys = [
     'chirp_mass',
@@ -725,6 +729,8 @@ if __name__ == '__main__':
         resume=True
     )
 
+    print('pe done.')
+
     result.plot_corner()
 
     if reweight and isinstance(
@@ -750,7 +756,29 @@ if __name__ == '__main__':
             waveform_generator=alt_waveform_generator
         )
         likelihood.distance_marginalization = False
-        weights = list()
+
+        def compute_weight(params):
+            return (
+                alt_likelihood.log_likelihood_ratio(params)
+                - likelihood.log_likelihood_ratio(params)
+            )
+
+        def parallel_reweight(posterior, npool=8):
+            param_list = posterior.to_dict(orient="records")
+            n = len(param_list)
+
+            # Pool map with tqdm progress bar
+            with Pool(npool) as pool:
+                log_weights = list(
+                    tqdm(pool.imap(compute_weight, param_list, chunksize=100),
+                    total=n,
+                    desc="Computing weights")
+                )
+
+            return np.array(log_weights)
+
+        """
+            weights = list()
         for ii in trange(len(result.posterior)):
             parameters = dict(result.posterior.iloc[ii])
             likelihood.parameters.update(parameters)
@@ -759,20 +787,19 @@ if __name__ == '__main__':
                 alt_likelihood.log_likelihood_ratio()
                 - likelihood.log_likelihood_ratio()
             )
-        weights = np.exp(weights)
-        efficiency = np.mean(weights)**2 / np.mean(weights**2) * 100
-        print(
-            f'''
-            Reweighting efficiency is
-            {efficiency:.5f}%'''
-        )
-        print(f'''
-            Binned vs unbinned log Bayes factor is
-            {np.log(np.mean(weights)):.5f}''')
+        """
+        log_weights = parallel_reweight(result.posterior, npool=npool)
+        slw, kss = psislw(log_weights, normalize=False)        
+        neff, log_z = compute_log_evidence_and_neff(log_weights)
+        efficiency = neff / len(log_weights) * 100
+        print(f'Reweighting efficiency is {efficiency:.5f}%')
+        print(f'Binned vs unbinned log Bayes factor is {log_z:.5f}')
+        print(f'Pareto shape is {kss:.5f}')
 
         # Generate result object with the posterior for the regular likelihood
         # using rejection sampling
         alt_result = deepcopy(result)
+        weights = np.exp(log_weights)
         keep = weights > np.random.uniform(0, max(weights), len(weights))
         alt_result.posterior = result.posterior.iloc[keep]
 
@@ -791,5 +818,9 @@ if __name__ == '__main__':
             gzip=False
         )
 
-        with open(f'{outdir}/eff.txt', 'r') as f:
+        with open(f'{outdir}/eff.txt', 'w') as f:
             f.write(f'{efficiency:.5f}')
+        with open(f'{outdir}/kss.txt', 'w') as f:
+            f.write(f'{kss:.5f}')
+
+        print('done.')
