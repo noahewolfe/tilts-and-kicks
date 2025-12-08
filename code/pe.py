@@ -97,25 +97,28 @@ def digest_args(args):
 
     overwrite = args.overwrite
     outdir = args.outdir
-
+    reweight = args.reweight
     
     paths = [
         f'{outdir}/dynesty_result.json', f'{outdir}/dynesty_result.hdf5'
     ]
 
-    if args.reweight:
-        for res_path in paths:
-            if not os.path.isfile(res_path):
-                print('result does not yet exist, skipping reweight!')
-                print('done.')
-                quit()
-
-    if not overwrite:
+    if not overwrite or reweight:
+        found = False
         for res_path in paths:
             if os.path.isfile(res_path):
-                print(f'result file already exits at {res_path}; skipping!')
-                print('done.')
-                quit()
+                found = True
+                print(f'result file already exits at {res_path}')
+
+        if not overwrite and found:
+            print('pe already done')
+            print('done.')
+            quit()
+
+        if reweight and not found:
+            print('nothing to reweight')
+            print('done.')
+            quit()
 
     npool = args.npool
 
@@ -334,7 +337,7 @@ def digest_args(args):
         injection_matched_filter_network_snr,
         rerun,
         outdir_extras,
-        args.reweight,
+        reweight,
         injection_waveform,
         recovery_waveform,
         check_recovery_snrs
