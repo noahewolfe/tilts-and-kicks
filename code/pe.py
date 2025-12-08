@@ -98,10 +98,19 @@ def digest_args(args):
     overwrite = args.overwrite
     outdir = args.outdir
 
+    
+    paths = [
+        f'{outdir}/dynesty_result.json', f'{outdir}/dynesty_result.hdf5'
+    ]
+
+    if args.reweight:
+        for res_path in paths:
+            if not os.path.isfile(res_path):
+                print('result does not yet exist, skipping reweight!')
+                print('done.')
+                quit()
+
     if not overwrite:
-        paths = [
-            f'{outdir}/dynesty_result.json', f'{outdir}/dynesty_result.hdf5'
-        ]
         for res_path in paths:
             if os.path.isfile(res_path):
                 print(f'result file already exits at {res_path}; skipping!')
