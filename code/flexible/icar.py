@@ -160,18 +160,27 @@ def log_binned_rates_cond(log_dV, parameters, bins, ln_dvc):
     assert dimension >= 3
 
     log_rates = parameters['log_merger_rate_density']
-    log_rates_01 = log_binned_rates(parameters, bins[:-1], ln_dvc[:-1])
+    log_rates_01 = log_binned_rates(parameters, bins[:-1], ln_dvc)
     
     # marg over all but first param; lifted from https://git.ligo.org/jack.heinzel/pixelpop/-/blob/main/pixelpop/models/probabilistic.py#L317
     # we marg over all but the second-to-last param to get R(\theta_0)
     normalization = logsumexp(log_rates) + jnp.sum(log_dV)
     i = 0
-    sum_axes = tuple(jnp.arange(dimension)[jnp.r_[0:i, i + 1:dimension - 1]])
+    sum_axes = tuple(np.arange(dimension)[np.r_[0:i, i + 1:dimension - 1]])
     log_rates_0 = logsumexp(log_rates - normalization, axis=sum_axes) + jnp.sum(log_dV[:i]) + jnp.sum(log_dV[i+1:])
 
-    log_density_2 = log_rates_01 - log_rates_0
+#    print('log_rates_0.shape= ', log_rates_0.shape)
+#    print('log_rates.shape=', log_rates.shape)
 
-    return log_rates_01 + log_density_2 + ln_dvc[-1]
+    # log_rates_0 is 
+    # R(m1 | t1) R(t1) / R(m_1) = R(t1 | m1)
+    # R(m1, t1) / R(m1) = R(t1 | m1)
+    # log_rates - log_rates_0 is log of R(m_1, cos_theta_1) / R(m_1)
+
+    log_density_2 = log_rates - log_rates_0
+    log_density_2 = log_density_2[(bins[0], bins[-1])]
+
+    return log_rates_01 + log_density_2
 
 
 def rate_likelihood_and_variance(

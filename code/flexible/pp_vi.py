@@ -119,11 +119,38 @@ def get_ignore_keys(parameters_for_pixelpop):
 def get_model(parameters_for_pixelpop):
     # options: either m_1 and cos_tilt_1 or cos_tilt_1 and cos_tilt_2
 
-    if (
-        'log_mass_1' in parameters_for_pixelpop.keys()
-        and 'cos_tilt_1' in parameters_for_pixelpop.keys()
-    ):
-        raise NotImplementedError('m1 and cos_tilt_1 not yet implemented')
+    if 'log_mass_1' in parameters_for_pixelpop.keys() and 'cos_tilt_1' in parameters_for_pixelpop.keys() and 'cos_tilt_2' in parameters_for_pixelpop.keys():
+        from models import log_powerlaw_redshift
+
+        from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+        from models import truncnorm
+        
+        def log_density(dataset, parameters):
+            log_p_q = PowerlawPlusPeak_MassRatio(
+                dataset,
+                slope=parameters['beta'],
+                minimum=parameters['mlow_1'],#parameters['mmin'],
+                delta_m=parameters['delta_m_1'],#parameters['delta_m']
+            )
+
+            log_p_z = log_powerlaw_redshift(dataset, parameters)
+
+            p_a1 = truncnorm(
+                dataset['a_1'],
+                parameters['mu_chi'],
+                parameters['sigma_chi'],
+                high=1,
+                low=0
+            )
+            p_a2 = truncnorm(
+                dataset['a_2'],
+                parameters['mu_chi'],
+                parameters['sigma_chi'],
+                high=1,
+                low=0
+            )
+
+            return log_p_m1 + log_p_q + log_p_z + jnp.log(p_a1) + jnp.log(p_a2)
     elif 'log_mass_1' in parameters_for_pixelpop.keys() and 'redshift' in parameters_for_pixelpop.keys():
         raise NotImplementedError('deleted this')
     elif 'cos_tilt_1' in parameters_for_pixelpop.keys() and 'cos_tilt_2' in parameters_for_pixelpop.keys():
@@ -279,7 +306,7 @@ if __name__ == '__main__':
     ntot = len(posteriors['log_prior'])
 
     (
-        bin_axes, event_bins, inj_bins, event_ln_dvc, inj_ln_dvc, log_car_prior
+        bin_axes, event_bins, inj_bins, event_ln_dvc, inj_ln_dvc, log_car_prior, log_dV
     ) = build_pixelpop(
         posteriors,
         injections,
@@ -288,26 +315,39 @@ if __name__ == '__main__':
     )
 
     print(bin_axes)
+    print(event_ln_dvc.shape)
+    print(inj_ln_dvc.shape)
+    print(log_dV.shape)
 
     log_rate_prior = partial(log_rate_prior, log_car_prior)
 
     log_density = get_model(parameters_for_pixelpop)
     ignore_keys = get_ignore_keys(parameters_for_pixelpop)
 
+    print('assuming an iid model so using dimension - 1')
     param_keys, bounds, log_prior, fold = fuse_priors(
         prior='./priors/lvk.prior',
         log_rate_prior=log_rate_prior,
         nbins=nbins,
-        dimension=dimension,
+        dimension=dimension - 1,
         ignore_keys=ignore_keys
     )
 
     def pack(x):
-        return fold(unravel(param_keys, nbins, dimension, x))
+        return fold(unravel(param_keys, nbins, dimension - 1, x))
 
     taper = partial(taper, maximum_variance)
 
     ttot = injections.pop('time')
+
+    from icar import log_binned_rates_cond
+    log_binned_rates = partial(log_binned_rates_cond, log_dV)
+
+#    test_parameters=dict(
+#        log_merger_rate_density=jax.random.normal(jax.random.key(1), (10, 10))
+#    )
+#    print(log_binned_rates(test_parameters, event_bins, event_ln_dvc))
+
     rate_likelihood_and_variance = partial(
         rate_likelihood_and_variance,
         ttot,
@@ -318,6 +358,7 @@ if __name__ == '__main__':
         inj_bins,
         event_ln_dvc,
         inj_ln_dvc,
+        log_binned_rates=log_binned_rates
     )
 
     def wrapped_likelihood_and_prior(x):
