@@ -96,18 +96,22 @@ def get_comoving_factors(posteriors, injections):
     return event_ln_dvc, inj_ln_dvc
 
 
-def build_pixelpop(posteriors, injections, parameters, nbins):
+def build_pixelpop(posteriors, injections, parameters, nbins, iid=False):
     """ return bins, comoving factors, and (log) CAR prior method """
     dimension = len(parameters)
     bins = [nbins] * dimension
 
+    dim_for_prior = dimension
+    if iid:
+        dim_for_prior = dimension - 1
+
     adj_matrices = [
         create_CAR_coupling_matrix(bins[ii], 1, isVisible=False)
-        for ii in range(dimension)
+        for ii in range(dim_for_prior)
     ]
 
-    ICAR_model = initialize_ICAR(dimension, length_scales=False)
-
+    ICAR_model = initialize_ICAR(dim_for_prior, length_scales=False)
+    
     def log_car_prior(parameters):
         log_rates = parameters['log_merger_rate_density']
         dist = ICAR_model(

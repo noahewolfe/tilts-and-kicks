@@ -1,0 +1,17 @@
+universe         = vanilla
+accounting_group = ligo.sim.o4.cbc.bayesianpopulations.parametric
+
+initialdir       = /home/noah.wolfe/projects/tilts-and-kicks/code
+
+getenv           = True
+
+requirements     = Microarch < "x86_64-v2"
+request_cpus     = 1
+request_memory   = 4 GB
+request_disk     = 1 GB
+
+output          = ./run.out
+error           = ./run.err
+log             = ./run.log
+
+queue 1

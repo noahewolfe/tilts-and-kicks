@@ -98,7 +98,6 @@ def get_ignore_keys(parameters_for_pixelpop):
             'sigpp_1',
             'mpp_2',
             'sigpp_2',
-            'mlow_1',
             'lam_0',
             'lam_1'
         ]
@@ -150,7 +149,7 @@ def get_model(parameters_for_pixelpop):
                 low=0
             )
 
-            return log_p_m1 + log_p_q + log_p_z + jnp.log(p_a1) + jnp.log(p_a2)
+            return log_p_q + log_p_z + jnp.log(p_a1) + jnp.log(p_a2)
     elif 'log_mass_1' in parameters_for_pixelpop.keys() and 'redshift' in parameters_for_pixelpop.keys():
         raise NotImplementedError('deleted this')
     elif 'cos_tilt_1' in parameters_for_pixelpop.keys() and 'cos_tilt_2' in parameters_for_pixelpop.keys():
@@ -311,7 +310,8 @@ if __name__ == '__main__':
         posteriors,
         injections,
         parameters_for_pixelpop,
-        nbins
+        nbins,
+        iid=True
     )
 
     print(bin_axes)

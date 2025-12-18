@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euox pipefail
 
-idx=1
+idx=23
 
 python -u pe.py \
-    --outdir "../data/pe/mock/xphm/${idx}" \
+    --outdir "../data/pe/mock/full-xphm/${idx}" \
     --index $idx \
     --npool 8 \
     --prior-path './priors/bbh.prior' \
@@ -13,5 +13,4 @@ python -u pe.py \
     --catalog-path '../data/vt/mock/cat.hdf5' \
     --injection-waveform 'xphm' \
     --recovery-waveform 'xphm' \
-    --reweight \
-    --overwrite \
+    --use-full-likelihood
