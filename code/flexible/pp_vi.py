@@ -277,7 +277,7 @@ def set_log_mass_1(data):
     return data
 
 
-key = jax.random.key(1701)
+key = jax.random.key(1702)
 
 if __name__ == '__main__':
     (
@@ -343,11 +343,6 @@ if __name__ == '__main__':
     from icar import log_binned_rates_cond
     log_binned_rates = partial(log_binned_rates_cond, log_dV)
 
-#    test_parameters=dict(
-#        log_merger_rate_density=jax.random.normal(jax.random.key(1), (10, 10))
-#    )
-#    print(log_binned_rates(test_parameters, event_bins, event_ln_dvc))
-
     rate_likelihood_and_variance = partial(
         rate_likelihood_and_variance,
         ttot,
@@ -404,7 +399,7 @@ if __name__ == '__main__':
 
     key, subkey = jax.random.split(key)
     keys = jax.random.split(subkey, ntest)
-    _, (samples, log_q) = jax.lax.scan(step, None, (jnp.arange(ntest, keys)))
+    _, (samples, log_q) = jax.lax.scan(step, None, (jnp.arange(ntest), keys))
 
     @scan_tqdm(ntest, desc='log_p')
     def step(carry, x):
@@ -418,27 +413,29 @@ if __name__ == '__main__':
 
     samples = jax.vmap(pack)(samples)
 
-    mask = var < maximum_variance
-
-    if jnp.sum(mask) == 0:
-        stats = dict()
-        print('warning! no samples found below variance cut!')
-    else:
-        stats = estimate_convergence(log_post[mask], log_q[mask])
-
-    print(
-        f"eff : {stats['eff']}, kss : {stats['kss']}"
-    )
-
     res = dict(
         log_likelihood=lkl,
         variance=var,
         log_posterior=log_post,
         log_q=log_q,
-        **stats,
         **samples
     )
 
     h5ify.save(f'{outdir}/result.h5', res, mode='w')
+
+    mask = var < maximum_variance
+
+    if jnp.sum(mask) <= 10:
+        stats = dict()
+        print('warning! <= 10 samples found below variance cut!')
+    else:
+        stats = estimate_convergence(log_post[mask], log_q[mask])
+        print(
+            f"eff : {stats['eff']}, kss : {stats['kss']}"
+        )
+
+        res = dict(**res, **stats)
+
+        h5ify.save(f'{outdir}/result.h5', res, mode='w')
 
     print('done.')
