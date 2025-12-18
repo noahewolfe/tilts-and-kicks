@@ -11,15 +11,15 @@ set -euox pipefail
 
 cd /n/home03/newolfe/projects/tilts-and-kicks/code/flexible
 
-outdir="../../data/inference/pixelpop/vi/ct1-ct2-nb10-s1e6-b1e1"
+outdir="../../data/inference/pixelpop/vi/test"
 
 mkdir -p $outdir
 
 /n/home03/newolfe/.conda/envs/seqpop/bin/python -u pp_vi.py \
     --outdir $outdir \
     --flow 'bnaf' \
-    --flow-kwargs '{"nn_block_dim" : 64}' \
-    --train-kwargs '{"steps" : 1000000, "batch_size" : 10, "lr" : 0.1, "final_lr": 0}' \
+    --flow-kwargs '{"nn_block_dim" : 8}' \
+    --train-kwargs '{"steps" : 1000, "batch_size" : 10, "lr" : 0.1, "final_lr": 0}' \
     --nbins 10 \
     --maximum-variance 1 \
     --parameters '{"cos_tilt_1" : [-1.0, 1.0], "cos_tilt_2" : [-1.0, 1.0]}' \

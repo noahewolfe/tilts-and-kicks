@@ -355,15 +355,23 @@ if __name__ == '__main__':
     key, subkey = jax.random.split(key)
     save_key(f'{outdir}/sample_key.npy', subkey)
 
-    samples, log_q = flow.sample_and_log_prob(subkey, (10_000,))
+    ntest = 10_000
+    @scan_tqdm(ntest, desc='sample_and_log_prob')
+    def step(carry, x):
+        _, key = x
+        return None, flow.sample_and_log_prob(key)
 
-    @scan_tqdm(10_000, desc='log_p')
+    key, subkey = jax.random.split(key)
+    keys = jax.random.split(subkey, ntest)
+    _, (samples, log_q) = jax.lax.scan(step, None, (jnp.arange(ntest, keys)))
+
+    @scan_tqdm(ntest, desc='log_p')
     def step(carry, x):
         _, parameters = x
         return None, wrapped_likelihood_and_prior(parameters)
 
     _, (lkl, var, lpr) = jax.lax.scan(
-        step, None, (jnp.arange(10_000), samples)
+        step, None, (jnp.arange(ntest), samples)
     )
     log_post = lkl + lpr
 
