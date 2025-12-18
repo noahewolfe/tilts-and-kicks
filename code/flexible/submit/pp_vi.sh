@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #SBATCH --job-name=jfk-ct1-ct2
-#SBATCH -p iaifi_gpu
+#SBATCH -p iaifi_gpu_requeue
 #SBATCH --gres=gpu:1
 #SBATCH -c 1
 #SBATCH --mem=100GB
@@ -14,7 +14,7 @@ set -euox pipefail
 
 cd $HOME/projects/tilts-and-kicks/code/flexible
 
-outdir="../../data/inference/pixelpop/vi/ct-nb10-lr1e-3-flr1e-3-s1e4-b10-bd64"
+outdir="../../data/inference/pixelpop/vi/ct-nb10-lr1e-3-flr1e-3-s1e5-b10-bd64"
 
 mkdir -p $outdir
 
@@ -22,7 +22,7 @@ $HOME/.conda/envs/seqpop/bin/python -u pp_vi.py \
     --outdir $outdir \
     --flow 'bnaf' \
     --flow-kwargs '{"nn_block_dim" : 64}' \
-    --train-kwargs '{"steps" : 10000, "batch_size" : 10, "lr" : 0.001, "final_lr": 0.001}' \
+    --train-kwargs '{"steps" : 100000, "batch_size" : 10, "lr" : 0.001, "final_lr": 0.001}' \
     --nbins 10 \
     --maximum-variance 1 \
     --parameters '{"log_mass_1" : [1.0986122886681098, 5.703782474656201], "cos_tilt_1" : [-1.0, 1.0], "cos_tilt_2" : [-1.0, 1.0]}' \
