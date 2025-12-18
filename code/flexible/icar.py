@@ -96,18 +96,22 @@ def get_comoving_factors(posteriors, injections):
     return event_ln_dvc, inj_ln_dvc
 
 
-def build_pixelpop(posteriors, injections, parameters, nbins):
+def build_pixelpop(posteriors, injections, parameters, nbins, iid=False):
     """ return bins, comoving factors, and (log) CAR prior method """
     dimension = len(parameters)
     bins = [nbins] * dimension
 
+    dim_for_prior = dimension
+    if iid:
+        dim_for_prior = dimension - 1
+
     adj_matrices = [
         create_CAR_coupling_matrix(bins[ii], 1, isVisible=False)
-        for ii in range(dimension)
+        for ii in range(dim_for_prior)
     ]
 
-    ICAR_model = initialize_ICAR(dimension, length_scales=False)
-
+    ICAR_model = initialize_ICAR(dim_for_prior, length_scales=False)
+    
     def log_car_prior(parameters):
         log_rates = parameters['log_merger_rate_density']
         dist = ICAR_model(
@@ -117,7 +121,7 @@ def build_pixelpop(posteriors, injections, parameters, nbins):
         )
         return dist.log_prob(log_rates)
 
-    event_bins, inj_bins, bin_axes, _ = place_in_bins(
+    event_bins, inj_bins, bin_axes, log_dV = place_in_bins(
         list(parameters.keys()),
         posteriors,
         injections,
@@ -133,7 +137,7 @@ def build_pixelpop(posteriors, injections, parameters, nbins):
         inj_ln_dvc = jnp.zeros_like(inj_bins[0])
 
     return (
-        bin_axes, event_bins, inj_bins, event_ln_dvc, inj_ln_dvc, log_car_prior
+        bin_axes, event_bins, inj_bins, event_ln_dvc, inj_ln_dvc, log_car_prior, log_dV
     )
 
 
@@ -149,6 +153,40 @@ def log_rate_prior(log_car_prior, parameters):
     return logtrapz(log_ys, jnp.exp(log_sigma))
 
 
+def log_binned_rates(parameters, bins, ln_dvc):
+    log_rates = parameters['log_merger_rate_density']
+    return log_rates[bins] + ln_dvc
+
+
+def log_binned_rates_cond(log_dV, parameters, bins, ln_dvc):
+    # assumes the last parameter is iid with second to last and correlated
+    dimension = len(bins)
+    assert dimension >= 3
+
+    log_rates = parameters['log_merger_rate_density']
+    log_rates_01 = log_binned_rates(parameters, bins[:-1], ln_dvc)
+    
+    # marg over all but first param; lifted from https://git.ligo.org/jack.heinzel/pixelpop/-/blob/main/pixelpop/models/probabilistic.py#L317
+    # we marg over all but the second-to-last param to get R(\theta_0)
+    normalization = logsumexp(log_rates) + jnp.sum(log_dV)
+    i = 0
+    sum_axes = tuple(np.arange(dimension)[np.r_[0:i, i + 1:dimension - 1]])
+    log_rates_0 = logsumexp(log_rates - normalization, axis=sum_axes) + jnp.sum(log_dV[:i]) + jnp.sum(log_dV[i+1:])
+
+#    print('log_rates_0.shape= ', log_rates_0.shape)
+#    print('log_rates.shape=', log_rates.shape)
+
+    # log_rates_0 is 
+    # R(m1 | t1) R(t1) / R(m_1) = R(t1 | m1)
+    # R(m1, t1) / R(m1) = R(t1 | m1)
+    # log_rates - log_rates_0 is log of R(m_1, cos_theta_1) / R(m_1)
+
+    log_density_2 = log_rates - log_rates_0
+    log_density_2 = log_density_2[(bins[0], bins[-1])]
+
+    return log_rates_01 + log_density_2
+
+
 def rate_likelihood_and_variance(
     live_time,
     posteriors,
@@ -158,22 +196,19 @@ def rate_likelihood_and_variance(
     inj_bins,
     event_ln_dvc,
     inj_ln_dvc,
-    parameters
+    parameters,
+    log_binned_rates=log_binned_rates
 ):
     """ log-likelihood and variance of log-likelihood estimator """
-    log_rates = parameters['log_merger_rate_density']
-
     log_pe_weights = (
-        log_rates[event_bins]
+        log_binned_rates(parameters, event_bins, event_ln_dvc)
         + log_density(posteriors, parameters)
         - posteriors['log_prior']
-        + event_ln_dvc
     )
     log_vt_weights = (
-        log_rates[inj_bins]
+        log_binned_rates(parameters, inj_bins, inj_ln_dvc)    
         + log_density(injections, parameters)
         - injections['log_prior']
-        + inj_ln_dvc
     )
 
     event_weights = log_pe_weights
@@ -202,6 +237,68 @@ def rate_likelihood_and_variance(
     ln_likelihood_variance = pe_var + vt_var
 
     return ln_likelihood, ln_likelihood_variance
+
+
+
+def rate_likelihood_and_variance_iid_tilts(
+    live_time,
+    posteriors,
+    injections,
+    log_density,
+    event_bins,
+    inj_bins,
+    event_ln_dvc,
+    inj_ln_dvc,
+    parameters
+):
+    """ log-likelihood and variance of log-likelihood estimator """
+    log_rates = parameters['log_merger_rate_density']
+
+    cost2_event_bins = event_bins[-1] 
+
+    log_pe_weights = (
+        log_rates[event_bins[:-1]]
+        + log_density(posteriors, parameters)
+        - posteriors['log_prior']
+        + event_ln_dvc
+    )
+    log_vt_weights = (
+        log_rates[inj_bins[:-1]]
+        + log_density(injections, parameters)
+        - injections['log_prior']
+        + inj_ln_dvc
+    )
+
+    # model for cos_t2:
+    
+
+    event_weights = log_pe_weights
+    denominator_weights = log_vt_weights
+
+    ninj = injections['total_generated']
+
+    nobs, npe = event_weights.shape
+    numerators = logsumexp(event_weights, axis=1) - jnp.log(npe)
+    denominator = logsumexp(denominator_weights) - jnp.log(ninj)
+
+    pe_ln_likelihood = jnp.sum(numerators)
+
+    nexp = live_time * jnp.exp(denominator)
+    vt_ln_likelihood = nobs * jnp.log(live_time) - nexp
+    ln_likelihood = pe_ln_likelihood + vt_ln_likelihood
+
+    square_sums = logsumexp(2 * event_weights, axis=1) - 2 * jnp.log(npe)
+    square_sum = logsumexp(2 * denominator_weights) - 2 * jnp.log(ninj)
+
+    pe_var = jnp.sum(jnp.exp(square_sums - 2 * numerators) - 1 / npe)
+    vt_var = live_time**2 * (
+        jnp.exp(square_sum) - jnp.exp(2 * denominator) / ninj
+    )
+
+    ln_likelihood_variance = pe_var + vt_var
+
+    return ln_likelihood, ln_likelihood_variance
+
 
 
 def clean_data(data, min_m=3, max_m=150, max_z=1.45, remove=False):
