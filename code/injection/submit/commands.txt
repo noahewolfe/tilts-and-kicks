@@ -1,0 +1,3 @@
+python cqueue.py vt.py --submit --parentdir ../../data/vt/xp --queue 10 --args '--ninj 1000 --snr-threshold 11 --init-seed 1 --model ./parameters/model.json --parameters ./parameters/vt-o4a-strong-maxl-sharp-peak.json'
+
+python cqueue.py pe.py --parentdir ../../data/pe/mock --queue 100 --args '--npool 1 --prior-path ./priors/bbh.prior --time-reference H1 --nlive 250 --catalog-path ../../data/vt/mock/cat.hdf5 --injection-waveform xphm --recovery-waveform xp'
