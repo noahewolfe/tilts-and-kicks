@@ -5,8 +5,6 @@ import argparse
 from functools import partial
 
 import jax
-#jax.config.update('jax_debug_nans', True)
-#jax.config.update('jax_enable_x64', True)
 import jax.numpy as jnp
 
 import h5ify
@@ -45,7 +43,9 @@ parser.add_argument('--nbins', type=int, help='number of pixelpop bins')
 parser.add_argument('--cut', type=int)
 parser.add_argument('--parameters', type=json.loads)
 parser.add_argument('--maximum-variance', type=float)
-
+parser.add_argument('--init', action='store_true')
+parser.add_argument('--prior', default='./priors/lvk.prior')
+parser.add_argument('--model-in-m2', action='store_true')
 
 def parse_args():
     """ parse command-line arguments """
@@ -83,7 +83,10 @@ def parse_args():
         args.train_kwargs,
         args.cut,
         args.parameters,
-        args.maximum_variance
+        args.maximum_variance,
+        args.init,
+        args.prior,
+        args.model_in_m2
     )
 
 
@@ -118,60 +121,78 @@ def get_ignore_keys(parameters_for_pixelpop):
 def get_model(parameters_for_pixelpop):
     # options: either m_1 and cos_tilt_1 or cos_tilt_1 and cos_tilt_2
 
-    if 'log_mass_1' in parameters_for_pixelpop.keys() and 'cos_tilt_1' in parameters_for_pixelpop.keys() and 'cos_tilt_2' in parameters_for_pixelpop.keys():
+    if (
+        'log_mass_1' in parameters_for_pixelpop.keys()
+        and 'cos_tilt_1' in parameters_for_pixelpop.keys()
+        and 'cos_tilt_2' in parameters_for_pixelpop.keys()
+    ):
         from models import log_powerlaw_redshift
 
         from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
         from models import truncnorm
-        
-        def log_density(dataset, parameters):
-            log_p_q = PowerlawPlusPeak_MassRatio(
-                dataset,
-                slope=parameters['beta'],
-                minimum=parameters['mlow_1'],#parameters['mmin'],
-                delta_m=parameters['delta_m_1'],#parameters['delta_m']
-            )
+        from pixelpop.models.gwpop_models import trunc_gaussian
 
+        def log_density(dataset, parameters):
             log_p_z = log_powerlaw_redshift(dataset, parameters)
 
-            p_a1 = truncnorm(
+            log_p_a1 = trunc_gaussian(
                 dataset['a_1'],
                 parameters['mu_chi'],
-                parameters['sigma_chi'],
-                high=1,
-                low=0
+                jnp.sqrt(parameters['sigma_chi']),  # TODO: cursed! should use sigma_chi as std. but we set a prior following LVK on `sigma_chi^2`
+                lower=0,
+                upper=1
             )
-            p_a2 = truncnorm(
+
+            log_p_a2 = trunc_gaussian(
                 dataset['a_2'],
                 parameters['mu_chi'],
-                parameters['sigma_chi'],
-                high=1,
-                low=0
+                jnp.sqrt(parameters['sigma_chi']),  # TODO: cursed! should use sigma_chi as std. but we set a prior following LVK on `sigma_chi^2`
+                lower=0,
+                upper=1
             )
 
-            return log_p_q + log_p_z + jnp.log(p_a1) + jnp.log(p_a2)
-    elif 'log_mass_1' in parameters_for_pixelpop.keys() and 'redshift' in parameters_for_pixelpop.keys():
-        raise NotImplementedError('deleted this')
-    elif 'cos_tilt_1' in parameters_for_pixelpop.keys() and 'cos_tilt_2' in parameters_for_pixelpop.keys():
-        #from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
-        #from models import log_iid_spin_mag_truncnorm
-        #from models import log_truncated_powerlaw
-        from models import log_powerlaw_redshift
+            log_prob = log_p_z + log_p_a1 + log_p_a2
 
+            if 'mmax_m2' in parameters:
+                from models import bandpass_peak
+
+                mmax = jnp.minimum([jnp.exp(dataset['log_mass_1']), parameters['mmax_m2']])
+                bandpass_peak(
+                    dataset['mass_2'],
+                    alpha=-parameters['alpha_m2'],
+                    mmin=3,
+                    mmax=mmax,
+                    dmin=parameters['delta_min_m2'],
+                    dmax=parameters['delta_max_m2'],
+                    mpp=parameters['mpp_m2'],
+                    sigpp=parameters['sigpp_m2'],
+                    lam=parameters['lam_m2']
+                )
+            else:
+                log_p_q = PowerlawPlusPeak_MassRatio(
+                    dataset,
+                    slope=parameters['beta'],
+                    minimum=parameters['mlow_1'],
+                    delta_m=parameters['delta_m_1'],
+                )
+                log_prob += log_p_q
+
+            return log_prob
+    elif (
+        'log_mass_1' in parameters_for_pixelpop.keys()
+        and 'redshift' in parameters_for_pixelpop.keys()
+    ):
+        raise NotImplementedError('deleted this')
+    elif (
+        'cos_tilt_1' in parameters_for_pixelpop.keys()
+        and 'cos_tilt_2' in parameters_for_pixelpop.keys()
+    ):
+        from models import log_powerlaw_redshift
         from pixelpop.models.gwpop_models import BrokenPowerlawPlusTwoPeaks_PrimaryMass
         from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
         from models import truncnorm
 
         def log_density(dataset, parameters):
-            #if 'lam_2' not in parameters.keys():
-            #    if (
-            #        'lam_0' in parameters.keys()
-            #        and 'lam_1' in parameters.keys()
-            #    ):
-            #        parameters['lam_2'] = (
-            #            1 - parameters['lam_0'] - parameters['lam_1']
-            #        )
-
             log_p_m1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass(
                 dataset,
                 alpha_1=parameters['alpha_1'],
@@ -217,51 +238,6 @@ def get_model(parameters_for_pixelpop):
             )
 
             return log_p_m1 + log_p_q + log_p_z + jnp.log(p_a1) + jnp.log(p_a2)
-
-        """
-        def log_density(dataset, parameters):
-            if 'lam_2' not in parameters.keys():
-                if (
-                    'lam_0' in parameters.keys()
-                    and 'lam_1' in parameters.keys()
-                ):
-                    parameters['lam_2'] = (
-                        1 - parameters['lam_0'] - parameters['lam_1']
-                    )
-
-            log_prob = BrokenPowerlawPlusTwoPeaks_PrimaryMass(
-                dataset,
-                alpha_1=parameters['alpha_1'],
-                alpha_2=parameters['alpha_2'],
-                mmin=parameters['mlow_1'],
-                break_mass=parameters['break_mass'],
-                delta_m_1=parameters['delta_m_1'],
-                lam_fractions=(
-                    parameters['lam_0'],
-                    parameters['lam_1'],
-                    parameters['lam_2']
-                ),
-                mpp_1=parameters['mpp_1'],
-                sigpp_1=parameters['sigpp_1'],
-                mpp_2=parameters['mpp_2'],
-                sigpp_2=parameters['sigpp_2'],
-                mmax=300.0,
-                gaussian_mass_maximum=100.0
-            )
-
-            log_prob += PowerlawPlusPeak_MassRatio(
-                dataset,
-                slope=parameters['beta'],
-                minimum=parameters['mlow_1'],
-                delta_m=parameters['delta_m_1']
-            )
-
-            log_prob += log_powerlaw_redshift(dataset, parameters)
-
-            log_prob += log_iid_spin_mag_truncnorm(dataset, parameters)
-
-            return log_prob
-        """
     else:
         raise ValueError(
             'Bad combination of parameters for pixelpop:'
@@ -282,13 +258,21 @@ key = jax.random.key(1702)
 if __name__ == '__main__':
     (
         outdir, nbins, build_flow, train_kwargs, cut, parameters_for_pixelpop,
-        maximum_variance
+        maximum_variance, init, prior, model_in_m2
     ) = parse_args()
 
     dimension = len(parameters_for_pixelpop)
 
     posteriors, _ = get_posteriors(load=True)
     injections = get_injections(load=True)
+
+    if model_in_m2:
+        # jacobians! we assume prior is in (m1, q)
+        posteriors['prior'] /= posteriors['mass_1_source']
+        injections['prior'] /= injections['mass_1_source']
+
+        posteriors['mass_2'] = posteriors['mass_1_source'] * posteriors['mass_ratio']
+        injections['mass_2'] = injections['mass_1_source'] * injections['mass_ratio']
 
     posteriors['mass_1'] = posteriors.pop('mass_1_source')
 
@@ -314,11 +298,6 @@ if __name__ == '__main__':
         iid=True
     )
 
-    print(bin_axes)
-    print(event_ln_dvc.shape)
-    print(inj_ln_dvc.shape)
-    print(log_dV.shape)
-
     log_rate_prior = partial(log_rate_prior, log_car_prior)
 
     log_density = get_model(parameters_for_pixelpop)
@@ -326,11 +305,12 @@ if __name__ == '__main__':
 
     print('assuming an iid model so using dimension - 1')
     param_keys, bounds, log_prior, fold = fuse_priors(
-        prior='./priors/lvk.prior',
+        prior=prior,
         log_rate_prior=log_rate_prior,
         nbins=nbins,
         dimension=dimension - 1,
-        ignore_keys=ignore_keys
+        ignore_keys=ignore_keys,
+        outdir=outdir
     )
 
     def pack(x):
@@ -371,6 +351,41 @@ if __name__ == '__main__':
     save_key(f'{outdir}/flow_init_key.npy', subkey)
     flow_init = build_flow(subkey, bounds)
 
+    key, subkey = jax.random.split(key)
+
+    if init:
+        from icar import effective_log_likelihood
+
+        scale = 1
+        npar = len(param_keys)
+
+        param_bounds = jnp.array(bounds[:npar])
+
+        print(param_keys)
+        print(npar)
+        print(param_bounds)
+
+        def log_init(x):
+            parameters = pack(x)
+            ll = effective_log_likelihood(scale, parameters)
+            lpr = log_prior(parameters)
+            return ll + lpr
+
+        flow_init, loss_init = fit(
+            subkey,
+            flow_init,
+            log_init,
+            steps=1_000,
+            batch_size=10_000,
+            clip=True,
+            lr=1e-1,
+            final_lr=0
+        )
+
+        jnp.save(f'{outdir}/loss-init.npy', loss_init)
+
+    save(f'{outdir}/flow-init.eqx', flow_init)
+
     with open(f'{outdir}/num_flow_params.txt', 'w') as f:
         f.write(str(count_params(flow_init)))
 
@@ -379,7 +394,6 @@ if __name__ == '__main__':
         subkey,
         flow_init,
         log_posterior,
-        outdir,
         **train_kwargs
     )
 
@@ -392,6 +406,7 @@ if __name__ == '__main__':
     save_key(f'{outdir}/sample_key.npy', subkey)
 
     ntest = 10_000
+
     @scan_tqdm(ntest, desc='sample_and_log_prob')
     def step(carry, x):
         _, key = x

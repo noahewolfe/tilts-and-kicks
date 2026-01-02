@@ -9,17 +9,33 @@ from optax._src.linear_algebra import global_norm
 from paramax import NonTrainable
 
 
-def fit(key, flow, log_target, clip=True, lr=1e-1, steps=1_000, batch_size=1, final_lr=0):
+def fit(
+    key,
+    flow,
+    log_target,
+    clip=True,
+    lr=1e-1,
+    steps=1_000,
+    batch_size=1,
+    final_lr=0
+):
     """ Train loop wrapped with some default choices for population inference
         in terms of learning rate, schedule, and optimizer.
     """
-    learning_rate = optax.warmup_cosine_decay_schedule(
-        init_value=lr,
-        peak_value=lr,
-        warmup_steps=0,
-        decay_steps=steps,
-        end_value=final_lr
-    )
+
+    if lr == final_lr:
+        # NOTE: small numerics mean that even using same init_value, peak_value,
+        # and end_value in warmup_cosine_decay_schedule, we don't get
+        # precisely the same learning rate. doesn't matter much in practice.
+        learning_rate = lr
+    else:
+        learning_rate = optax.warmup_cosine_decay_schedule(
+            init_value=lr,
+            peak_value=lr,
+            warmup_steps=0,
+            decay_steps=steps,
+            end_value=final_lr
+        )
 
     if clip:
         optimizer = optax.chain(
@@ -94,6 +110,17 @@ def train(
         flow = eqx.combine(params, static)
         samples, log_flows = flow.sample_and_log_prob(key, (batch_size,))
         log_targets = jax.vmap(lambda x: log_target(x, step))(samples)
+
+        # debug
+        # bad = (~jnp.isfinite(log_flows)).any() | (~jnp.isfinite(log_targets)).any()
+        bad_flow = ~jnp.isfinite(log_flows).any()
+        bad_target = ~jnp.isfinite(log_targets).any() 
+
+        jax.debug.print("step {} bad_flow={} bad_target={} log_flows[min,max]={},{} log_t[min,max]={},{}",
+                        step, bad_flow, bad_target,
+                        jnp.nanmin(log_flows), jnp.nanmax(log_flows),
+                        jnp.nanmin(log_targets), jnp.nanmax(log_targets))
+
         return reverse_kl(log_targets, log_flows)
 
     state = optimizer.init(params)

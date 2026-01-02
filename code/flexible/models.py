@@ -501,3 +501,42 @@ def log_iid_spin_mag_truncnorm(dataset, parameters):
         low=0
     ))
     return p_a1 + p_a2
+
+
+def bandpass_peak_shape(
+    x, alpha, mmin, mmax, dmin, dmax, mpp, sigpp, lam,
+    norm_mmin=3, norm_mmax=300
+):
+    p_pow = truncated_powerlaw(x, alpha, mmin, mmax)
+    p_norm = truncnorm(x, mu=mpp, sigma=sigpp, high=norm_mmax, low=mmin)
+
+    prob = (1 - lam) * p_pow + lam * p_norm
+    highpass = highpass_sigmoid(x, mmin, norm_mmax, dmin)
+    lowpass = highpass_sigmoid(-x, -mmax, -mmin, dmax)
+
+    return lowpass * highpass * prob
+
+
+def bandpass_peak_norm(
+    alpha, mmin, mmax, dmin, dmax, mpp, sigpp, lam, norm_mmin=3, norm_mmax=300
+):
+    xs = jnp.linspace(norm_mmin, norm_mmax, 1000)
+    shape = jnp.nan_to_num(bandpass_peak_shape(
+        xs, alpha, mmin, mmax, dmin, dmax, mpp, sigpp, lam,
+        norm_mmin, norm_mmax
+    ))
+    return jnp.trapezoid(shape, xs)
+
+
+def bandpass_peak(
+    x, alpha, mmin, mmax, dmin, dmax, mpp, sigpp, lam,
+    norm_mmin=3, norm_mmax=300
+):
+    shape = bandpass_peak_shape(
+        x, alpha, mmin, mmax, dmin, dmax, mpp, sigpp, lam,
+        norm_mmin, norm_mmax
+    )
+    norm = bandpass_peak_norm(
+        alpha, mmin, mmax, dmin, dmax, mpp, sigpp, lam, norm_mmin, norm_mmax
+    )
+    return jnp.where(norm > 0, shape / norm, 0)

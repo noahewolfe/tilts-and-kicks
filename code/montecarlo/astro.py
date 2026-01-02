@@ -22,19 +22,39 @@ grav_constant_au_days = (
 kg_per_msun = 1.989e30
 
 
-def calc_orbital_seperation(period, total_mass):
+def calc_semimajor_axis(period, total_mass):
     """ period in days; return orbital seperation in AU """
     return (
         period**2 * grav_constant_au_days * total_mass / 4 / jnp.pi**2
     )**(1 / 3)
 
 
-def calc_orbital_velocity(total_mass, sep):
-    """ total_mass in Msun; sep in AU; returns velocity in km / s """
+def calc_orbital_seperation(semimajor_axis, eccentricity, phase):
+    """ phase is the phase-angle of the orbit, in radians """
+    r = semimajor_axis * (1 - eccentricity**2)
+    r /= 1 + eccentricity * jnp.cos(phase)
+    return r
+
+
+def calc_orbital_velocity(total_mass, semimajor_axis, seperation=None):
+    """ total_mass in Msun; semi-major axis in AU; returns velocity in km / s.
+        if `sep` is None we take it to be the semi-major axis """
+
     # TODO: could return here if numerical stability becomes relevant
-    v = jnp.sqrt(grav_constant_au_days * total_mass / sep)  # [ AU / day ]
+    if seperation is None:
+        v = jnp.sqrt(grav_constant_au_days * total_mass / semimajor_axis)
+    else:
+        v = jnp.sqrt(
+            grav_constant_au_days * total_mass * (
+                2 / seperation - 1 / semimajor_axis
+            )
+        )
+
+    # v at this point is in [ AU / day ]
+
     v /= au_per_kilometer  # [ km / day ]
     v /= seconds_per_day  # [ km / s ]
+
     return v
 
 

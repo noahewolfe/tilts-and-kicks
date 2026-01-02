@@ -120,3 +120,22 @@ def convert_bilby_prior(prior, backend='jax'):
             return log_prob
 
     return param_keys, bounds, log_prior, fold
+
+
+def bilby_prior_to_pixelpop_prior(prior, remove=[]):
+    # TODO: support for things other than uniform...
+    from bilby.core.prior import PriorDict
+    from bilby.core.prior import Uniform as Uniform_bilby
+    from numpyro.distributions import Uniform
+
+    prior = PriorDict(prior)
+
+    for v in prior.values():
+        if not isinstance(v, Uniform_bilby):
+            raise NotImplementedError(f'conversion for prior {type(v)}')
+
+    return {
+        k : ([v.minimum, v.maximum], Uniform)
+        for k, v in prior.items()
+        if k not in remove
+    }
