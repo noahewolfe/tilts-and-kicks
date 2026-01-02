@@ -43,7 +43,7 @@ initialdir       = {initialdir}
 
 arguments        = {arguments}
 
-environment = JAX_ENABLE_X64=True; JAX_PLATFORM_NAME="cpu"
+environment = JAX_ENABLE_X64=True; JAX_PLATFORM_NAME=cpu
 getenv           = True
 
 requirements     = {requirements}
