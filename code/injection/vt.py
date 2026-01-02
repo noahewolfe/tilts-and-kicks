@@ -340,6 +340,8 @@ def draw_injection(priors, model, parameters):
 
         u = bilby.core.utils.random.rng.uniform()
         if u < xi_spin:
+            # TODO: maybe we need trunc_gaussian here...
+            # TODO: compare distributions!
             p_ct = truncnorm(cts, mu_spin, sigma_spin, 1, -1)
             ct_prior = Interped(cts, p_ct, minimum=-1, maximum=1)
             ct1 = ct_prior.sample()

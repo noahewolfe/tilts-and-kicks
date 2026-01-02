@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp as lse
 
 
 def mean_and_variance(weights, n):
@@ -9,10 +10,33 @@ def mean_and_variance(weights, n):
     return mean, variance
 
 
+def safe_mean_and_variance(log_weights, n):
+    log_n = jnp.log(n)
+    log_mean = lse(log_weights) - log_n
+    log_neff = 2 * lse(log_weights) - lse(2 * log_weights)
+    log_variance = -log_neff + jax.nn.log1mexp(log_neff - log_n)
+    return log_mean, jnp.exp(log_variance)
+
+
 def ln_mean_and_variance(weights, n):
     # lazy ln(mean) and variance of ln(mean)
     mean, variance = mean_and_variance(weights, n)
     return jnp.log(mean), variance / mean**2
+
+
+def safe_ln_mean_and_variance(log_weights, n):
+    """ numerically safe ln(mean) and variance of ln(mean) """
+    log_n = jnp.log(n)
+    log_mean = lse(log_weights) - log_n
+
+    log_neff = 2 * lse(log_weights) - lse(2 * log_weights)
+
+    # TODO: can we do anything here (tricks with log1p or expm1)?
+    #log_variance = -log_neff + jnp.log(-jnp.expm1(log_neff - log_n))
+    #log_variance_of_log = log_variance - 2 * log_mean
+    variance_of_log = 1 / jnp.exp(log_neff) - 1 / n
+
+    return log_mean, variance_of_log
 
 
 def selection(injections, density, parameters):
@@ -69,18 +93,17 @@ def rate_ln_likelihood_and_variance(
 def shape_ln_likelihood_and_variance(
     posteriors, injections, density, parameters
 ):
-    (
-        ln_lkls, pdet, pe_variances, pdet_variance
-    ) = event_ln_likelihoods_and_selection(
-        posteriors, injections, density, parameters
-    )
+    pe_log_weights = density(posteriors, parameters) - posteriors['log_prior']
+    vt_log_weights = density(injections, parameters) - injections['log_prior']
 
+    nobs, npe = pe_log_weights.shape
+    ln_lkls, pe_variances = jax.vmap(
+        lambda lw: safe_ln_mean_and_variance(lw, npe)
+    )(pe_log_weights)
     pe_variance = jnp.sum(pe_variances)
 
-    nobs = len(ln_lkls)
-
-    ln_pdet = jnp.log(pdet)
-    ln_pdet_variance = pdet_variance / pdet**2
+    ninj = injections['total_generated']
+    ln_pdet, ln_pdet_variance = safe_ln_mean_and_variance(vt_log_weights, ninj)
 
     ln_lkl = jnp.sum(ln_lkls) - ln_pdet * nobs
     variance = pe_variance + ln_pdet_variance * nobs**2
@@ -187,22 +210,3 @@ def get_bilby_likelihood(
             return self.noise_log_likelihood() + self.log_likelihood_ratio()
 
     return LikelihoodWrapper()
-
-
-def masked_shape_likelihood(posteriors, injections, density, parameters, mask):
-    (
-        ln_lkls, pdet, pe_variances, pdet_variance
-    ) = event_ln_likelihoods_and_selection(
-        posteriors, injections, density, parameters
-    )
-
-    nobs = jnp.sum(mask)
-    pe_variance = jnp.sum(pe_variances, where=mask)
-
-    ln_pdet = jnp.log(pdet)
-    ln_pdet_variance = pdet_variance / pdet**2
-
-    ln_lkl = jnp.sum(ln_lkls, where=mask) - ln_pdet * nobs
-    variance = pe_variance + ln_pdet_variance * nobs**2
-
-    return ln_lkl, variance, pe_variance, ln_pdet_variance, ln_pdet

@@ -7,7 +7,6 @@ import jax.scipy.special as jsp
 import wcosmo
 from astropy import units
 
-
 def truncnorm(xx, mu, sigma, high, low):
     """ ripped from gwpop v1.1.1 -- Colm's later version has a nan switch
         that breaks autodiff!
@@ -486,18 +485,42 @@ def log_plq_given_m1(dataset, parameters):
 
 
 def log_iid_spin_mag_truncnorm(dataset, parameters):
-    p_a1 = jnp.log(truncnorm(
+    from pixelpop.models.gwpop_models import trunc_gaussian
+
+    log_p_a1 = trunc_gaussian(
         dataset['a_1'],
         parameters['mu_chi'],
-        parameters['sigma_chi'],
-        high=1,
-        low=0
-    ))
-    p_a2 = jnp.log(truncnorm(
+        jnp.sqrt(parameters['sigma_chi']),
+        lower=0,
+        upper=1
+    )
+
+    log_p_a2 = trunc_gaussian(
         dataset['a_2'],
         parameters['mu_chi'],
-        parameters['sigma_chi'],
-        high=1,
-        low=0
-    ))
-    return p_a1 + p_a2
+        jnp.sqrt(parameters['sigma_chi']),
+        lower=0,
+        upper=1
+    )
+
+    return log_p_a1 + log_p_a2
+
+
+def log_nid_iso_gauss_tilt(dataset, parameters):
+    from pixelpop.models.gwpop_models import trunc_gaussian
+
+    cos_tilt_1, cos_tilt_2 = dataset['cos_tilt_1'], dataset['cos_tilt_2']
+
+    xi_spin = parameters['xi_spin']
+    sigma_spin = parameters['sigma_spin']
+    mu_spin = parameters.get('mu_spin', 1)
+
+    iso = jnp.log((1 - xi_spin) / 4)
+
+    gauss = (
+        jnp.log(xi_spin)
+        + trunc_gaussian(cos_tilt_1, mu_spin, sigma_spin, lower=-1, upper=1)
+        + trunc_gaussian(cos_tilt_2, mu_spin, sigma_spin, lower=-1, upper=1)
+    )
+
+    return jnp.logaddexp(iso, gauss)
