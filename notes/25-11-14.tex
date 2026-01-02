@@ -59,6 +59,7 @@ pdfusetitle,
         \item Tilts are just hard to measure with GWs and we got unlucky? \faicon{wrench}
         \item Lack of mass transfer b/t supernovae \checkmark
         \item Off-axis kicks \faicon{circle}
+        \item precession evolution? -> TODO read papers!
         \item three-body interactions (out-of-scope)
     \end{itemize}
     \item Population Synthesis
@@ -67,12 +68,22 @@ pdfusetitle,
         \item So I think this is already the most conservative case for what we want to study -- not even re-alignment give us peaks away from $\cos \theta = \pm 1$
         \begin{figure}[h]
             \centering
-            \includegraphics[width=0.5\linewidth]{./figures/BBH_spin_tilts.png}
+            \includegraphics[width=0.5\linewidth]{./figures/25-11-14/BBH_spin_tilts.png}
             \caption{Caption}
             \label{fig:placeholder}
         \end{figure}
         \item So that *might* be minimum-viable hardcore pop. synth., actually? We can use it to guide our mock study and population inference---in terms of peakiness and correlations. Also timescales of evolution from BH+BH formation to merger for precession-evolution calculation.
         \item If we want to study the effects of, e.g., off-axis kicks, we could go to another pop. synth code. I looked at cosmic, but its written in \texttt{FORTRAN}...
+
+        \item notes during meeting
+        \begin{itemize}
+            \item Mike agrees we dont need lots of pop synth
+            \item more enlightening to do Monte Carlo study with many different prescriptions for re-alignment, kick distributions \& prescriptions
+            \item expand my existing Monte Carlo code with \textit{two} supernovae
+            \item if we do find regions that give us peaks away from 1, fold into a population model and run on GWTC-4
+            \item total mass or separation on one axis, kick velocity on another, location of peak/lower of HDI90
+            \item look at mass slices of tilt angle distribution
+        \end{itemize}
     \end{itemize}
     \item Mock Catalog
     \begin{itemize}
@@ -91,6 +102,13 @@ pdfusetitle,
         \item \textbf{Population:} do some kind of heuristic fit to pop. synth. cosine tilt distributions and fit a ``low kicks" and ``high kicks" case (extremely peaky vs. somewhat less peaky)
     \end{itemize}
 
+    \item mock catalog notes
+    \begin{itemize}
+        \item run on CIT
+        \item fewer live points, and add on extra parallel chains
+        
+    \end{itemize}
+
     \item Miscellany
     \begin{itemize}
         \item How does \texttt{Posydon} handle core-collapse for stellar mergers?
@@ -104,5 +122,7 @@ pdfusetitle,
         \end{itemize}
     \end{itemize}
 \end{itemize}
+
+
 
 \end{document}

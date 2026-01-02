@@ -2,22 +2,22 @@ import json
 import numpy as np
 import argparse
 
-import jax
 import jax.numpy as jnp
 
 import pixelpop
 
-from data import load_data
-from bilby_util import bilby_prior_to_pixelpop_prior
+from data import get_injections
+from data import get_posteriors
 
-from models import log_truncated_powerlaw
+from priors import bilby_prior_to_pixelpop_prior
+
 from models import log_powerlaw_redshift as log_pl_z
-from models import beta_dist
-from models import iso_gauss_spin_tilt
+from pixelpop.models.gwpop_models import trunc_gaussian
+from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
 
 from util import write_config
 
-maximum_variance = 4
+maximum_variance = 1
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--parentdir', type=str, default='./runs/pixelpop/hmc')
@@ -32,7 +32,6 @@ parser.add_argument(
     default=dict()
 )
 parser.add_argument('--nbins', type=int)
-parser.add_argument('--cut', type=float, default=30)
 
 
 def parse_args():
@@ -49,30 +48,38 @@ def parse_args():
         args.thinning,
         args.nbins,
         args.binned_parameters,
-        args.cut
     )
 
 
 print_keys = ['Nexp', 'log_likelihood', 'log_likelihood_variance', 'lnsigma']
 
 
-def log_spin_magnitude(dataset, alpha_chi, beta_chi):
-    p_a1 = beta_dist(
+def set_log_mass_1(data):
+    data['prior'] *= data['mass_1']
+    data['log_mass_1'] = jnp.log(data.pop('mass_1'))
+    return data
+
+
+def log_spin_magnitude(dataset, mu_chi, sigma_chi):
+    # TODO: cursed! should use sigma_chi as std. but we set a prior
+    # following LVK on `sigma_chi^2`
+    log_p_a1 = trunc_gaussian(
         dataset['a_1'],
-        alpha_chi,
-        beta_chi
+        mu_chi,
+        jnp.sqrt(sigma_chi),
+        lower=0,
+        upper=1
     )
-    p_a2 = beta_dist(
+
+    log_p_a2 = trunc_gaussian(
         dataset['a_2'],
-        alpha_chi,
-        beta_chi
+        mu_chi,
+        jnp.sqrt(sigma_chi),
+        lower=0,
+        upper=1
     )
 
-    return jnp.log(p_a1) + jnp.log(p_a2)
-
-
-def log_iso_gauss_spin_tilt(dataset, xi_spin, sigma_spin):
-    return jnp.log(iso_gauss_spin_tilt(dataset, xi_spin, sigma_spin))
+    return log_p_a1 + log_p_a2
 
 
 def log_powerlaw_redshift(dataset, lamb):
@@ -102,6 +109,35 @@ def clean_data(data, min_m=3, max_m=150, max_z=1.45, remove=False):
     return data
 
 
+def get_ignore_keys(parameters):
+    ignore_keys = []
+    if 'log_mass_1' in parameters.keys():
+        ignore_keys += [
+            'alpha_1',
+            'alpha_2',
+            'break_mass',
+            'mpp_1',
+            'sigpp_1',
+            'mpp_2',
+            'sigpp_2',
+            'lam_0',
+            'lam_1',
+            'mlow_1'
+        ]
+
+    if (
+        'cos_tilt_1' in parameters.keys()
+        and 'cos_tilt_2' in parameters.keys()
+    ):
+        ignore_keys += [
+            'mu_spin',
+            'sigma_spin',
+            'xi_spin'
+        ]
+
+    return ignore_keys
+
+
 if __name__ == '__main__':
     (
         parentdir,
@@ -112,46 +148,54 @@ if __name__ == '__main__':
         thinning,
         nbins,
         binned_parameters,
-        cut
     ) = parse_args()
 
     parameters = list(binned_parameters.keys())
-    other_parameters = ['mass_ratio', 'redshift', 'a', 'cos_tilt_2']
+
+    print('parameters =', parameters)
+
+    other_parameters = ['mass_ratio', 'redshift', 'a']
     other_parameters = [k for k in other_parameters if k not in parameters]
 
     if 'mass_1' not in parameters and 'log_mass_1' not in parameters:
         raise NotImplementedError('Not pulled in m1 parametric model here')
 
-    posteriors, injections = load_data(
-        catalog='noah',
-        cut=cut,
-        return_events=False
-    )
+    posteriors, _ = get_posteriors(load=True)
+    injections = get_injections(load=True)
 
-    if 'log_mass_1' in parameters:
-        posteriors['prior'] *= posteriors['mass_1']
-        injections['prior'] *= injections['mass_1']
-        posteriors['log_mass_1'] = jnp.log(posteriors.pop('mass_1'))
-        injections['log_mass_1'] = jnp.log(injections.pop('mass_1'))
+    posteriors['mass_1'] = posteriors.pop('mass_1_source')
+
+    injections['analysis_time'] = injections.pop('time')
+    injections['total_generated'] = injections.pop('total')
+    injections['mass_1'] = injections.pop('mass_1_source')
+
+    if 'log_mass_1' in binned_parameters.keys():
+        posteriors = set_log_mass_1(posteriors)
+        injections = set_log_mass_1(injections)
 
     posteriors['log_prior'] = jnp.log(posteriors.pop('prior'))
     injections['log_prior'] = jnp.log(injections.pop('prior'))
 
-    injections['analysis_time'] = 10
+    posteriors = clean_data(
+        posteriors,
+        max_m=jnp.exp(binned_parameters['log_mass_1'][1]),
+        max_z=(
+            binned_parameters['redshift'][1]
+            if 'redshift' in binned_parameters
+            else 1.45
+        )
+    )
+    injections = clean_data(
+        injections,
+        max_m=jnp.exp(binned_parameters['log_mass_1'][1]),
+        max_z=(
+            binned_parameters['redshift'][1]
+            if 'redshift' in binned_parameters
+            else 1.45
+        )
+    )
 
-    posteriors = clean_data(posteriors, max_z=binned_parameters['redshift'][1])
-    injections = clean_data(injections, max_z=binned_parameters['redshift'][1])
-
-    ignore_keys = []
-    if 'mass_1' in parameters or 'log_mass_1' in parameters:
-        ignore_keys += [
-            'mmin', 'mmax', 'alpha', 'lam', 'mpp', 'sigpp', 'delta_m',
-            'delta_max'
-        ]
-    if 'mass_ratio' in parameters:
-        ignore_keys += ['beta']
-    if 'redshift' in parameters:
-        ignore_keys += ['lamb']
+    ignore_keys = get_ignore_keys(binned_parameters)
 
     m1_min = (
         binned_parameters['mass_1'][0]
@@ -159,23 +203,16 @@ if __name__ == '__main__':
         else jnp.exp(binned_parameters['log_mass_1'][0])
     )
 
-    def log_mass_ratio_given_primary_mass(dataset, beta):
-        if 'log_mass_1' in parameters:
-            mass_1 = jnp.exp(dataset['log_mass_1'])
-        else:
-            mass_1 = dataset['mass_1']
-
-        qmin = m1_min / mass_1
-        qmax = 1.0
-        return log_truncated_powerlaw(
-            x=dataset['mass_ratio'],
-            alpha=beta,
-            xmin=qmin,
-            xmax=qmax
+    def log_mass_ratio_given_primary_mass(dataset, beta, delta_m_1):
+        return PowerlawPlusPeak_MassRatio(
+            dataset,
+            slope=beta,
+            minimum=m1_min,
+            delta_m=delta_m_1,
         )
 
     priors = bilby_prior_to_pixelpop_prior(
-        './priors/wide-bandpass-snr30.prior',
+        './priors/pp-m1-t1-t2.prior',
         ignore_keys
     )
 
@@ -183,14 +220,12 @@ if __name__ == '__main__':
         mass_ratio=log_mass_ratio_given_primary_mass,
         redshift=log_powerlaw_redshift,
         a=log_spin_magnitude,
-        t=log_iso_gauss_spin_tilt
     )
 
     hyperparameters = dict(
-        mass_ratio=['beta'],
+        mass_ratio=['beta', 'delta_m_1'],
         redshift=['lamb'],
-        a=['alpha_chi', 'beta_chi'],
-        t=['xi_spin', 'sigma_spin']
+        a=['mu_chi', 'sigma_chi'],
     )
 
     for k in parameters:
@@ -219,7 +254,8 @@ if __name__ == '__main__':
             UncertaintyCut=np.sqrt(maximum_variance),
             hyperparameters=hyperparameters,
             length_scales=False,
-            random_initialization=True
+            random_initialization=True,
+            iid_tilt=True
         )
 
     print_keys += list(priors.keys())

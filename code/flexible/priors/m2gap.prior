@@ -1,0 +1,18 @@
+alpha_m2 = Uniform(minimum=-4, maximum=12)
+
+mpp_m2 = Uniform(minimum=5, maximum=50)
+sigpp_m2 = Uniform(minimum=0, maximum=10)
+
+delta_min_m2 = Uniform(minimum=0, maximum=10)
+delta_max_m2 = Uniform(minimum=0, maximum=10)
+
+lam_m2 = Uniform(minimum=0, maximum=1)
+
+mmax_m2 = Uniform(minimum=20, maximum=150)
+
+lamb = Uniform(minimum=-10, maximum=10)
+
+# Note: if this is too small it becomes really numerically unstable.
+# to be investigated further if this deeply impacts our results?
+mu_chi = Uniform(minimum=0, maximum=1)
+sigma_chi = Uniform(minimum=0.005, maximum=1)

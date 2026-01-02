@@ -15,5 +15,7 @@ beta = Uniform(minimum=-2, maximum=7)
 
 lamb = Uniform(minimum=-10, maximum=10)
 
-mu_chi = Uniform(minimum=0, maximum=1)
+# Note: if this is too small it becomes really numerically unstable.
+# to be investigated further if this deeply impacts our results?
+mu_chi = Uniform(minimum=0.001, maximum=1)
 sigma_chi = Uniform(minimum=0.005, maximum=1)
