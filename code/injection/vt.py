@@ -158,7 +158,13 @@ def get_inj_priors(model, parameters, outdir=None):
 
     if model['cos_tilt'] == 'iso_gauss':
         cts = np.linspace(-1, 1, 10_000)
-        p_ct = truncnorm(cts, mu_spin, sigma_spin, 1, -1)
+        p_ct = truncnorm(
+            cts,
+            parameters['mu_spin'],
+            parameters['sigma_spin'],
+            1,
+            -1
+        )
         ct_prior = Interped(cts, p_ct, minimum=-1, maximum=1)
         inj_priors['cos_tilt_gauss'] = ct_prior
     else:
