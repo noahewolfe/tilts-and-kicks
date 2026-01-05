@@ -1,5 +1,7 @@
 python cqueue.py vt.py --submit --parentdir ../../data/vt/xp --queue 10 --args '--ninj 1000 --snr-threshold 11 --init-seed 1 --model ./parameters/model.json --parameters ./parameters/vt-o4a-strong-maxl-sharp-peak.json'
 
-python cqueue.py vt.py --submit --parentdir ../../data/vt/xp --queue 1000 --args '--ninj 100 --snr-threshold 11 --init-seed 1000 --model ./parameters/model.json --parameters ./parameters/vt-o4a-strong-maxl-sharp-peak.json'
+python cqueue.py vt.py --submit --parentdir ../../data/vt/xp/sigma-spin-1e-3-more --queue 1000 --args '--ninj 1000 --snr-threshold 11 --init-seed 1000 --model ./parameters/model.json --parameters ./parameters/vt-o4a-strong-maxl-sharp-peak.json'
+
+python cqueue.py vt.py --submit --parentdir ../../data/vt/xp/sigma-spin-1e-2 --queue 1000 --args '--ninj 1000 --snr-threshold 11 --init-seed 2000 --model ./parameters/model.json --parameters ./parameters/vt-o4a-strong-maxl-sigma-spin-1e-2.json'
 
 python cqueue.py pe.py --parentdir ../../data/pe/xp --queue 350 --args '--npool 1 --prior-path ./priors/bbh.prior --time-reference H1 --nlive 250 --catalog-path ../../data/vt/xp/cat.hdf5 --injection-waveform xp --recovery-waveform xp'
