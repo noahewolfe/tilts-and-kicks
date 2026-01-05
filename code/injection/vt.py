@@ -156,7 +156,12 @@ def get_inj_priors(model, parameters, outdir=None):
         )
     ))
 
-    if model['cos_tilt'] != 'iso_gauss':
+    if model['cos_tilt'] == 'iso_gauss':
+        cts = np.linspace(-1, 1, 10_000)
+        p_ct = truncnorm(cts, mu_spin, sigma_spin, 1, -1)
+        ct_prior = Interped(cts, p_ct, minimum=-1, maximum=1)
+        inj_priors['cos_tilt_gauss'] = ct_prior
+    else:
         if model['cos_tilt'] == 'uniform':
             ct_low = parameters['cos_tilt_min']
             ct_high = parameters['cos_tilt_max']
@@ -336,14 +341,9 @@ def draw_injection(priors, model, parameters):
         mu_spin = parameters['mu_spin']
         sigma_spin = parameters['sigma_spin']
 
-        cts = np.linspace(-1, 1, 500)
-
         u = bilby.core.utils.random.rng.uniform()
         if u < xi_spin:
-            # TODO: maybe we need trunc_gaussian here...
-            # TODO: compare distributions!
-            p_ct = truncnorm(cts, mu_spin, sigma_spin, 1, -1)
-            ct_prior = Interped(cts, p_ct, minimum=-1, maximum=1)
+            ct_prior = priors.pop('cos_tilt_gauss')
             ct1 = ct_prior.sample()
             ct2 = ct_prior.sample()
         else:
