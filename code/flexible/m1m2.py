@@ -108,7 +108,7 @@ if __name__ == '__main__':
         marginalize_sigma=marginalize_sigma,
     )
 
-    print_keys=[
+    print_keys = [
         'Nexp',
         'log_likelihood',
         'log_likelihood_variance',

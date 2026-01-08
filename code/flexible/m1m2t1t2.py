@@ -23,6 +23,7 @@ parser.add_argument(
     default='../../data/inference/pixelpop/hmc/m1m2t1t2'
 )
 parser.add_argument('--name', type=str)
+parser.add_argument('--marginalize-sigma', action='store_true')
 parser.add_argument('--maximum-variance', type=float, default=1)
 
 mmin = 3
@@ -41,7 +42,8 @@ def parse_args():
     return (
         parentdir,
         name,
-        args.maximum_variance
+        args.maximum_variance,
+        args.marginalize_sigma
     )
 
 
@@ -55,8 +57,11 @@ def load_data():
     injections['total_generated'] = injections.pop('total')
     injections['mass_1'] = injections.pop('mass_1_source')
 
-    posteriors['log_prior'] = jnp.log(posteriors.pop('prior'))
-    injections['log_prior'] = jnp.log(injections.pop('prior'))
+    posteriors['mass_2'] = posteriors.pop('mass_ratio') * posteriors['mass_1']
+    injections['mass_2'] = injections.pop('mass_ratio') * injections['mass_1']
+
+    posteriors['prior'] /= posteriors['mass_1']
+    injections['prior'] /= injections['mass_1']
 
     return posteriors, injections
 
@@ -70,7 +75,7 @@ def clean_data(data, min_m=mmin, max_m=mmax, max_z=z_max, remove=False):
 
 
 if __name__ == '__main__':
-    parentdir, name, maximum_variance = parse_args()
+    parentdir, name, maximum_variance, marginalize_sigma = parse_args()
 
     posteriors, injections = load_data()
 
@@ -108,8 +113,20 @@ if __name__ == '__main__':
         length_scales=False, # same ICAR Gaussian coupling strength in all directions
         random_initialization=True, # initialize ICAR model from random Gaussian draw
         lower_triangular=True, # Restrict domain to m1 > m2
-        marginalize_sigma=True
+        marginalize_sigma=marginalize_sigma
     )
+
+    print_keys = [
+        'Nexp',
+        'log_likelihood',
+        'log_likelihood_variance',
+        'lamb',
+        'mu_spin',
+        'var_spin'
+    ]
+
+    if not marginalize_sigma:
+        print_keys += ['lnsigma']
 
     output, mcmc = inference_loop(
         probabilistic_model,
@@ -124,15 +141,7 @@ if __name__ == '__main__':
         parallel=1,
         run_dir=parentdir,
         name=name,
-        print_keys=[
-            'Nexp',
-            'log_likelihood',
-            'log_likelihood_variance',
-            'lnsigma',
-            'lamb',
-            'mu_spin',
-            'var_spin'
-        ],
+        print_keys=print_keys,
         dense_mass=False
     )
 
