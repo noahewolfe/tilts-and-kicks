@@ -8,7 +8,7 @@
 #SBATCH -t 03-00:00
 
 parentdir="../../data/inference/pixelpop/hmc/m1m2t1t2"
-name="nb40x40x10x10-var1-margsig"
+name="nb40x40x10x10-var5-margsig"
 
 outdir="${parentdir}/${name}"
 
@@ -18,5 +18,5 @@ mkdir -p $outdir
     --name $name \
     --parentdir $parentdir \
     --marginalize-sigma \
-    --maximum-variance 1 \
+    --maximum-variance 5 \
     > "$outdir/log.out" 2> "$outdir/log.err"

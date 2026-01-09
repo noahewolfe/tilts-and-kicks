@@ -25,6 +25,7 @@ parser.add_argument(
 parser.add_argument('--name', type=str)
 parser.add_argument('--marginalize-sigma', action='store_true')
 parser.add_argument('--maximum-variance', type=float, default=1)
+parser.add_argument('--parallel', type=int, default=1)
 
 mmin = 3
 mmax = 300
@@ -43,7 +44,8 @@ def parse_args():
         parentdir,
         name,
         args.maximum_variance,
-        args.marginalize_sigma
+        args.marginalize_sigma,
+        args.parallel
     )
 
 
@@ -75,7 +77,7 @@ def clean_data(data, min_m=mmin, max_m=mmax, max_z=z_max, remove=False):
 
 
 if __name__ == '__main__':
-    parentdir, name, maximum_variance, marginalize_sigma = parse_args()
+    parentdir, name, maximum_variance, marginalize_sigma, parallel = parse_args()
 
     posteriors, injections = load_data()
 
@@ -138,7 +140,7 @@ if __name__ == '__main__':
         pacc=0.45,
         maxtreedepth=5,
         num_samples=10,
-        parallel=1,
+        parallel=parallel,
         run_dir=parentdir,
         name=name,
         print_keys=print_keys,
