@@ -26,6 +26,7 @@ parser.add_argument('--name', type=str)
 parser.add_argument('--marginalize-sigma', action='store_true')
 parser.add_argument('--maximum-variance', type=float, default=1)
 parser.add_argument('--parallel', type=int, default=1)
+parser.add_argument('--seed', type=int, default=1)
 
 mmin = 3
 mmax = 300
@@ -45,7 +46,8 @@ def parse_args():
         name,
         args.maximum_variance,
         args.marginalize_sigma,
-        args.parallel
+        args.parallel,
+        args.seed
     )
 
 
@@ -77,7 +79,7 @@ def clean_data(data, min_m=mmin, max_m=mmax, max_z=z_max, remove=False):
 
 
 if __name__ == '__main__':
-    parentdir, name, maximum_variance, marginalize_sigma, parallel = parse_args()
+    parentdir, name, maximum_variance, marginalize_sigma, parallel, seed = parse_args()
 
     posteriors, injections = load_data()
 
@@ -144,7 +146,8 @@ if __name__ == '__main__':
         run_dir=parentdir,
         name=name,
         print_keys=print_keys,
-        dense_mass=False
+        dense_mass=False,
+        rng_key=jax.random.PRNGKey(seed)
     )
 
     print('done.')
