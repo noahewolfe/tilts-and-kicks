@@ -21,20 +21,21 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     '--parentdir',
     type=str,
-    default='../../data/inference/pixelpop/hmc/m1m2t1t2'
+    default='../../data/inference/pixelpop/hmc/mass-spin'
 )
 parser.add_argument('--name', type=str)
 parser.add_argument('--marginalize-sigma', action='store_true')
 parser.add_argument('--maximum-variance', type=float, default=1)
 parser.add_argument('--parallel', type=int, default=1)
 parser.add_argument('--seed', type=int, default=1)
+parser.add_argument('--bins', type=int, nargs=6, help='number of bins, [m1 m2 a1 a2 t1 t2]') 
 
 mmin = 3
 mmax = 300
 z_max = 2.3
 
-parameters = ['log_mass_1', 'log_mass_2', 'cos_tilt_1', 'cos_tilt_2']
-other_parameters = ['redshift', 'a']
+parameters = ['log_mass_1', 'log_mass_2', 'a_1', 'a_2', 'cos_tilt_1', 'cos_tilt_2']
+other_parameters = ['redshift']
 
 
 def parse_args():
@@ -45,6 +46,7 @@ def parse_args():
     return (
         parentdir,
         name,
+        args.bins,
         args.maximum_variance,
         args.marginalize_sigma,
         args.parallel,
@@ -80,7 +82,7 @@ def clean_data(data, min_m=mmin, max_m=mmax, max_z=z_max, remove=False):
 
 
 if __name__ == '__main__':
-    parentdir, name, maximum_variance, marginalize_sigma, parallel, seed = parse_args()
+    parentdir, name, bins, maximum_variance, marginalize_sigma, parallel, seed = parse_args()
 
     posteriors, injections = load_data()
 
@@ -99,16 +101,20 @@ if __name__ == '__main__':
         injections,  # injections to estimate selection effects
         parameters,  # parameters to infer with PixelPop ICAR model
         other_parameters,  # nuisance parameters
-        [40, 40, 10, 10],  # number of bins along each axis
+        bins,  # number of bins along each axis
         minima={
             'log_mass_1': np.log(mmin),
             'log_mass_2': np.log(mmin),
+            'a_1': 0.0,
+            'a_2': 0.0,
             'cos_tilt_1': -1.0,
             'cos_tilt_2': -1.0,
         },
         maxima={
             'log_mass_1': np.log(mmax),
             'log_mass_2': np.log(mmax),
+            'a_1': 1.0,
+            'a_2': 1.0,
             'cos_tilt_1': 1.0,
             'cos_tilt_2': 1.0,
         },
