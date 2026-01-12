@@ -82,7 +82,15 @@ def clean_data(data, min_m=mmin, max_m=mmax, max_z=z_max, remove=False):
 
 
 if __name__ == '__main__':
-    parentdir, name, bins, maximum_variance, marginalize_sigma, parallel, seed = parse_args()
+    (
+        parentdir,
+        name,
+        bins,
+        maximum_variance,
+        marginalize_sigma,
+        parallel,
+        seed
+    ) = parse_args()
 
     posteriors, injections = load_data()
 
@@ -132,8 +140,6 @@ if __name__ == '__main__':
         'log_likelihood',
         'log_likelihood_variance',
         'lamb',
-        'mu_spin',
-        'var_spin'
     ]
 
     if not marginalize_sigma:

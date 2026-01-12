@@ -17,6 +17,7 @@ mkdir -p $outdir
 /n/home03/newolfe/.conda/envs/just-for-kicks/bin/python -u mass-spin.py \
     --name $name \
     --parentdir $parentdir \
+    --bins 20 20 5 5 5 5 \
     --marginalize-sigma \
     --maximum-variance 1 \
     --parallel 1 \
