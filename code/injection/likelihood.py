@@ -200,8 +200,8 @@ def get_bilby_likelihood(
 
             self.generate_extra_statistics = jax.jit(extras)
 
-        def log_likelihood_ratio(self):
-            return self.log_likelihood_ratio_func(self.parameters)
+        def log_likelihood_ratio(self, parameters=None):
+            return self.log_likelihood_ratio_func(parameters)
 
         def noise_log_likelihood(self):
             return jnp.nan

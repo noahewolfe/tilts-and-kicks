@@ -702,7 +702,7 @@ def concat(outdir, load_all=False):
         return extras, total, data
 
     if load_all:
-        extras, total_generated, detectable = load(outdir, 'detectable')
+        extras, total_generated, detectable = load(dirs[0], 'detectable')
 
         with h5py.File(f'{outdir}/all.hdf5', 'w') as f:
             dsets = dict()
@@ -726,7 +726,7 @@ def concat(outdir, load_all=False):
                 f.attrs[k] = v
 
             for k, v in extras.items():
-                if k != 'attrs':
+                if k != 'attrs' and k not in dsets.keys():
                     grp = f.create_group('k')
                     for s in v.keys():
                         grp.create_dataset(s, data=v[s])
