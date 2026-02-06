@@ -490,7 +490,7 @@ def log_iid_spin_mag_truncnorm(dataset, parameters):
     log_p_a1 = trunc_gaussian(
         dataset['a_1'],
         parameters['mu_chi'],
-        jnp.sqrt(parameters['sigma_chi']),
+        parameters['sigma_chi'],
         lower=0,
         upper=1
     )
@@ -498,7 +498,7 @@ def log_iid_spin_mag_truncnorm(dataset, parameters):
     log_p_a2 = trunc_gaussian(
         dataset['a_2'],
         parameters['mu_chi'],
-        jnp.sqrt(parameters['sigma_chi']),
+        parameters['sigma_chi'],
         lower=0,
         upper=1
     )

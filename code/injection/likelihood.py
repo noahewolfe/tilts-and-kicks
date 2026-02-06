@@ -168,7 +168,8 @@ def get_bilby_likelihood(
 
             def log_likelihood_ratio_func(parameters):
                 lnl, var = self.ln_lkl_and_variance(parameters)
-                return lnl + taper(var)
+                lnl += taper(var)
+                return jnp.nan_to_num(lnl).astype(float)
 
             self.log_likelihood_ratio_func = jax.jit(log_likelihood_ratio_func)
 
@@ -206,7 +207,7 @@ def get_bilby_likelihood(
         def noise_log_likelihood(self):
             return jnp.nan
 
-        def log_likelihood(self):
-            return self.noise_log_likelihood() + self.log_likelihood_ratio()
+        def log_likelihood(self, parameters=None):
+            return self.log_likelihood_ratio(parameters=parameters)
 
     return LikelihoodWrapper()
