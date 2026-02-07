@@ -104,9 +104,10 @@ def highpass_broken_powerlaw_twopeaks(
     return jnp.where(norm > 0, shape / norm, 0)
 
 
-def log_powerlaw_redshift(dataset, parameters, max_z=1.45, return_norm=False):
+def log_powerlaw_redshift(dataset, parameters, return_norm=False):
     lamb = parameters['lamb']
     z = dataset['redshift']
+    max_z = parameters.get('z_max', 1.45)
 
     zs_fixed = np.linspace(1e-5, max_z, 1000)
     fixed_ln_dvc_dz = jnp.log(
@@ -462,7 +463,6 @@ def bpl2p_plz_truncnormmag_isogausstilt(dataset, parameters):
 
 def log_truncated_powerlaw(x, alpha, xmin, xmax):
     cut = (xmin <= x) * (x <= xmax)
-
     norm = (xmax**(alpha + 1) - xmin**(alpha + 1)) / (alpha + 1)
 
     log_prob = jnp.where(

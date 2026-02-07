@@ -28,6 +28,8 @@ from models import marg_iso_gauss_spin_tilt
 from models import log_powerlaw_redshift
 from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
 
+from bilby_util import LogInterped
+
 from util import list_to_dict
 from util import write_config
 from util import get_git_revision_short_hash
@@ -207,13 +209,13 @@ def get_inj_priors(model, parameters, outdir=None):
     if model['redshift'] == 'powerlaw':
         z_max = parameters['z_max']
         zs = np.linspace(1e-5, z_max, 1000)
-        pz = np.exp(log_powerlaw_redshift(
+        log_pz = np.array(log_powerlaw_redshift(
             dict(redshift=zs),
             parameters
         ))
-        z_prior = Interped(
+        z_prior = LogInterped(
             zs,
-            np.array(pz),
+            log_pz,
             minimum=min(zs),
             maximum=max(zs),
             name='redshift'

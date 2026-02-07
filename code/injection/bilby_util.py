@@ -1,9 +1,181 @@
 from copy import deepcopy
 
+import numpy as np
+
 from bilby.core.likelihood import Likelihood
 from bilby.core.prior import ConditionalPriorDict
 from bilby.core.prior import Uniform
 from bilby.core.prior import DirichletElement
+from bilby.core.prior import Prior
+
+
+def _log_expm1_over_x(x):
+    """Stable log((exp(x) - 1) / x)."""
+    x = np.asarray(x, dtype=np.float64)
+    out = np.empty_like(x)
+    small = np.abs(x) < 1e-7
+    out[small] = x[small] / 2 + x[small] ** 2 / 24
+    out[~small] = np.log(np.expm1(x[~small]) / x[~small])
+    return out
+
+
+def _logdiffexp(log_a, log_b):
+    """Stable log(exp(log_a) - exp(log_b)) for log_a >= log_b."""
+    log_b = np.minimum(log_b, log_a)
+    return log_a + np.log1p(-np.exp(log_b - log_a))
+
+
+class LogInterped(Prior):
+    """1D interpolated prior with log-density interpolation and log-space CDF."""
+    def __init__(
+        self, xx, log_yy, minimum=None, maximum=None, name=None, latex_label=None,
+        unit=None, boundary=None
+    ):
+        self.xx = np.asarray(xx, dtype=np.float64)
+        self.log_yy = np.asarray(log_yy, dtype=np.float64)
+
+        if self.xx.ndim != 1 or self.log_yy.ndim != 1:
+            raise ValueError('xx and log_yy must be one-dimensional')
+        if len(self.xx) < 2 or len(self.xx) != len(self.log_yy):
+            raise ValueError('xx and log_yy must have same length >= 2')
+        if not np.all(np.diff(self.xx) > 0):
+            raise ValueError('xx must be strictly increasing')
+        if not np.all(np.isfinite(self.log_yy)):
+            raise ValueError('log_yy must be finite')
+
+        if minimum is None:
+            minimum = float(self.xx[0])
+        if maximum is None:
+            maximum = float(self.xx[-1])
+        if (
+            not np.isclose(minimum, float(self.xx[0]))
+            or not np.isclose(maximum, float(self.xx[-1]))
+        ):
+            raise ValueError(
+                'LogInterped currently requires minimum/maximum to match xx bounds'
+            )
+
+        super().__init__(
+            name=name,
+            latex_label=latex_label,
+            unit=unit,
+            minimum=minimum,
+            maximum=maximum,
+            boundary=boundary
+        )
+
+        self._dx = np.diff(self.xx)
+        self._dlogp = np.diff(self.log_yy)
+
+        self._log_interval_mass = (
+            np.log(self._dx)
+            + self.log_yy[:-1]
+            + _log_expm1_over_x(self._dlogp)
+        )
+        self._log_norm = np.logaddexp.reduce(self._log_interval_mass)
+
+        self.log_yy = self.log_yy - self._log_norm
+        self._log_interval_mass = self._log_interval_mass - self._log_norm
+
+        self._log_cdf_knots = np.full_like(self.xx, -np.inf)
+        acc = -np.inf
+        for i in range(1, len(self.xx)):
+            acc = np.logaddexp(acc, self._log_interval_mass[i - 1])
+            self._log_cdf_knots[i] = acc
+        self._log_cdf_knots[-1] = 0.0
+
+    def _idx_and_t(self, val):
+        idx = np.searchsorted(self.xx, val, side='right') - 1
+        idx = np.clip(idx, 0, len(self.xx) - 2)
+        t = (val - self.xx[idx]) / self._dx[idx]
+        return idx, np.clip(t, 0.0, 1.0)
+
+    def ln_prob(self, val):
+        scalar = np.isscalar(val)
+        arr = np.asarray(val, dtype=np.float64)
+        out = np.full(arr.shape, -np.inf, dtype=np.float64)
+
+        mask = np.logical_and(arr >= self.minimum, arr <= self.maximum)
+        if np.any(mask):
+            x = arr[mask]
+            idx, t = self._idx_and_t(x)
+            lp = self.log_yy[idx] + self._dlogp[idx] * t
+            lp = np.where(x == self.maximum, self.log_yy[-1], lp)
+            out[mask] = lp
+
+        return float(out) if scalar else out
+
+    def prob(self, val):
+        return np.exp(self.ln_prob(val))
+
+    def cdf(self, val):
+        scalar = np.isscalar(val)
+        arr = np.asarray(val, dtype=np.float64)
+        out = np.zeros(arr.shape, dtype=np.float64)
+        out[arr >= self.maximum] = 1.0
+
+        mask = np.logical_and(arr > self.minimum, arr < self.maximum)
+        if np.any(mask):
+            x = arr[mask]
+            idx, t = self._idx_and_t(x)
+            k = self._dlogp[idx]
+            log_left = self._log_cdf_knots[idx]
+
+            log_local = np.full_like(x, -np.inf, dtype=np.float64)
+            pos = t > 0
+            if np.any(pos):
+                kp = k[pos] * t[pos]
+                log_local[pos] = (
+                    np.log(self._dx[idx][pos])
+                    + self.log_yy[idx][pos]
+                    + np.log(t[pos])
+                    + _log_expm1_over_x(kp)
+                )
+
+            log_cdf_x = np.where(
+                np.isfinite(log_left),
+                np.logaddexp(log_left, log_local),
+                log_local
+            )
+            out[mask] = np.exp(log_cdf_x)
+
+        return float(out) if scalar else out
+
+    def rescale(self, val):
+        scalar = np.isscalar(val)
+        arr = np.asarray(val, dtype=np.float64)
+        out = np.empty(arr.shape, dtype=np.float64)
+
+        out[arr <= 0] = self.minimum
+        out[arr >= 1] = self.maximum
+
+        mask = np.logical_and(arr > 0, arr < 1)
+        if np.any(mask):
+            u = arr[mask]
+            log_u = np.log(u)
+
+            idx = np.searchsorted(self._log_cdf_knots, log_u, side='right') - 1
+            idx = np.clip(idx, 0, len(self.xx) - 2)
+
+            log_left = self._log_cdf_knots[idx]
+            log_w = np.where(
+                np.isfinite(log_left),
+                _logdiffexp(log_u, log_left),
+                log_u
+            )
+
+            log_r = log_w - self._log_interval_mass[idx]
+            r = np.exp(np.clip(log_r, -np.inf, 0.0))
+
+            k = self._dlogp[idx]
+            t = np.where(
+                np.abs(k) < 1e-10,
+                r,
+                np.log1p(r * np.expm1(k)) / k
+            )
+            out[mask] = self.xx[idx] + self._dx[idx] * t
+
+        return float(out) if scalar else out
 
 
 def convert_bilby_uniform_prior(prior, backend='jax'):
@@ -189,7 +361,7 @@ def get_network(
 
         if network == 'CE40':
             ifos = InterferometerList(['CE40'])
-        lif network == 'CE20':
+        elif network == 'CE20':
             ifos = InterferometerList(['CE20'])
         elif network == 'CE2040':
             ifos = InterferometerList(['CE20', 'CE40'])
