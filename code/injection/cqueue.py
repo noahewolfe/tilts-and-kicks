@@ -17,6 +17,13 @@ parser.add_argument(
 )
 parser.add_argument('--args', type=str)
 
+environment = (
+    'JAX_ENABLE_X64=True; '
+    'JAX_PLATFORMS=cpu; '
+    'JAX_CUDA_VISIBLE_DEVICES=; '
+    'JAX_COMPILATION_CACHE_DIR=/tmp/jax_cache_$(Cluster)_$(Process)'
+)
+
 if __name__ == '__main__':
     args = parser.parse_args()
 
@@ -43,7 +50,7 @@ initialdir       = {initialdir}
 
 arguments        = {arguments}
 
-environment = JAX_ENABLE_X64=True; JAX_PLATFORM_NAME=cpu
+environment      = {environment}
 getenv           = True
 
 requirements     = {requirements}
