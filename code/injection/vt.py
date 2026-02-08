@@ -337,7 +337,6 @@ def draw_injection(priors, model, parameters):
                 'corresponding to highpass taper of mass_ratio distribution'
             )
 
-        @jax.jit
         def calc_log_p_q(this_m1):
             return PowerlawPlusPeak_MassRatio(
                 dict(
