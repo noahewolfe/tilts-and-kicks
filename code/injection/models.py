@@ -13,9 +13,9 @@ from pixelpop.models.gwpop_models import trunc_gaussian
 def log_powerlaw_redshift(dataset, parameters, return_norm=False):
     lamb = parameters['lamb']
     z = dataset['redshift']
-    max_z = parameters.get('z_max', 1.45)
+    z_max = parameters.get('z_max', 1.45)
 
-    zs_fixed = np.linspace(1e-5, max_z, 1000)
+    zs_fixed = np.linspace(1e-5, z_max, 1000)
     fixed_ln_dvc_dz = jnp.log(
         4 * jnp.pi * wcosmo.Planck15.differential_comoving_volume(zs_fixed).to(
             units.Gpc**3 / units.sr
@@ -33,7 +33,7 @@ def log_powerlaw_redshift(dataset, parameters, return_norm=False):
     ln_p = ln_dvc_dz + (lamb - 1) * jnp.log(1. + z)
     ln_p -= ln_norm
 
-    window = jnp.logical_and(z >= 0., z <= max_z)
+    window = jnp.logical_and(z >= 0., z <= z_max)
     p = jnp.where(window, ln_p, -jnp.inf)
     return p
 
