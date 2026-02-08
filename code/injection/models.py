@@ -1,3 +1,5 @@
+""" implementations in here are sometimes inspired by pixelpop """
+
 import numpy as np
 
 import jax
@@ -5,9 +7,11 @@ import jax.numpy as jnp
 import jax.scipy.special as jsp
 
 import wcosmo
-from astropy import units
+import unxt
 
 from pixelpop.models.gwpop_models import trunc_gaussian
+
+MPC3_TO_GPC3 = 1e-9
 
 
 def log_powerlaw_redshift(dataset, parameters, return_norm=False):
@@ -15,22 +19,24 @@ def log_powerlaw_redshift(dataset, parameters, return_norm=False):
     z = dataset['redshift']
     z_max = parameters.get('z_max', 1.45)
 
-    zs_fixed = np.linspace(1e-5, z_max, 1000)
-    fixed_ln_dvc_dz = jnp.log(
-        4 * jnp.pi * wcosmo.Planck15.differential_comoving_volume(zs_fixed).to(
-            units.Gpc**3 / units.sr
-        ).value
-    )
+    zs_fixed = jnp.linspace(1e-5, z_max, 1000)
+    dvc_dz = wcosmo.Planck15.differential_comoving_volume(zs_fixed)
+    if isinstance(dvc_dz, unxt.quantity.Quantity):
+        # dVc/dz is in Mpc^3/sr; convert value-only to Gpc^3/sr.
+        dvc_dz = 4 * jnp.pi * MPC3_TO_GPC3 * dvc_dz.value
+    else:
+        dvc_dz = 4 * jnp.pi * MPC3_TO_GPC3 * dvc_dz
+    fixed_ln_dvc_dz = jnp.log(dvc_dz)
 
     dz = zs_fixed[1] - zs_fixed[0]
-    test_ln_p = fixed_ln_dvc_dz + (lamb - 1) * jnp.log(1. + zs_fixed)
+    test_ln_p = fixed_ln_dvc_dz + (lamb - 1) * jnp.log1p(zs_fixed)
     ln_norm = jsp.logsumexp(test_ln_p) + jnp.log(dz)
 
     if return_norm:
         return ln_norm
 
     ln_dvc_dz = jnp.interp(z, zs_fixed, fixed_ln_dvc_dz)
-    ln_p = ln_dvc_dz + (lamb - 1) * jnp.log(1. + z)
+    ln_p = ln_dvc_dz + (lamb - 1) * jnp.log1p(z)
     ln_p -= ln_norm
 
     window = jnp.logical_and(z >= 0., z <= z_max)
