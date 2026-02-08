@@ -185,8 +185,6 @@ def build_interp_sampler(density, xs, xp=jnp):
 
 
 def log_iid_spin_mag_truncnorm(dataset, parameters):
-    from pixelpop.models.gwpop_models import trunc_gaussian
-
     log_p_a1 = trunc_gaussian(
         dataset['a_1'],
         parameters['mu_chi'],
@@ -207,8 +205,6 @@ def log_iid_spin_mag_truncnorm(dataset, parameters):
 
 
 def log_nid_iso_gauss_tilt(dataset, parameters):
-    from pixelpop.models.gwpop_models import trunc_gaussian
-
     cos_tilt_1, cos_tilt_2 = dataset['cos_tilt_1'], dataset['cos_tilt_2']
 
     xi_spin = parameters['xi_spin']
