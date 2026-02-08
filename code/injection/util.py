@@ -2,7 +2,8 @@ import os
 import json
 
 
-def choose_log_grid(log_density, lower, upper, eps, n_init=11, n_max=10_000):
+def choose_grid(log_density, lower, upper, eps, n_init=11, n_max=10_000):
+    # NOTE: in practice, it looks like I guessed roughly appropriate grid sizes
     """
     Adaptively choose interpolation points for any 1D log-density function.
 

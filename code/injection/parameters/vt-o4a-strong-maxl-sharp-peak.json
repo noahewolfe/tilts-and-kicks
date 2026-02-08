@@ -15,7 +15,7 @@
     "sigpp_2": 2.65,
     "mu_chi": 0.1,
     "sigma_chi": 0.34,
-    "mu_spin": 1.0,
+    "mu_spin": 0.9999999999,
     "sigma_spin": 0.001,
     "xi_spin": 0.94,
     "lamb": 2.61,

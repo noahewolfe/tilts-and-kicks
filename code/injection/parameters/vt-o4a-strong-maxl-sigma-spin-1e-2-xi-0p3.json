@@ -17,7 +17,7 @@
     "sigma_chi": 0.34,
     "mu_spin": 0.9999999999,
     "sigma_spin": 0.01,
-    "xi_spin": 0.94,
+    "xi_spin": 0.3,
     "lamb": 2.61,
     "z_max": 1.45
 }

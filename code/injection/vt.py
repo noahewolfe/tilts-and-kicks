@@ -24,8 +24,8 @@ from bilby.gw.conversion import generate_all_bbh_parameters
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
 from pixelpop.models.gwpop_models import trunc_gaussian
 
-from models import iso_gauss_spin_tilt
-from models import marg_iso_gauss_spin_tilt
+from models import log_nid_iso_gauss_tilt
+from models import log_marg_iso_gauss_spin_tilt
 from models import log_powerlaw_redshift
 from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
 
@@ -165,7 +165,7 @@ def get_inj_priors(model, parameters, outdir=None):
     ))
 
     if model['cos_tilt'] == 'iso_gauss':
-        cts = np.linspace(-1, 1, 10_000)
+        cts = np.linspace(-1 + 1e-10, 1 - 1e-10, 10_000)
         log_p_ct = trunc_gaussian(
             cts,
             parameters['mu_spin'],
@@ -197,7 +197,7 @@ def get_inj_priors(model, parameters, outdir=None):
             )
 
     if model['a_1'] == 'iid_truncnorm' and model['a_2'] == 'iid_truncnorm':
-        mags = np.linspace(0, 1, 500)
+        mags = np.linspace(0 + 1e-10, 1 - 1e-10, 500)
         log_pchi = trunc_gaussian(
             mags,
             parameters['mu_chi'],
