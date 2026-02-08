@@ -165,27 +165,6 @@ def plp_q(
     return jnp.where(norm > 0, shape / norm, 0)
 
 
-def iso_gauss_spin_tilt(dataset, xi_spin, sigma_spin, mu_spin=1):
-    cos_tilt_1, cos_tilt_2 = dataset['cos_tilt_1'], dataset['cos_tilt_2']
-    return (
-        (1 - xi_spin) / 4
-        + (
-            xi_spin
-            * truncnorm(cos_tilt_1, mu_spin, sigma_spin, high=1, low=-1)
-            * truncnorm(cos_tilt_2, mu_spin, sigma_spin, high=1, low=-1)
-        )
-    )
-
-
-def marg_iso_gauss_spin_tilt(cos_tau, xi_spin, sigma_spin, mu_spin=1):
-    return (
-        (1 - xi_spin) / 2
-        + (
-            xi_spin
-            * truncnorm(cos_tau, mu_spin, sigma_spin, high=1, low=-1)
-        )
-    )
-
 
 def BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
     data,
@@ -523,4 +502,13 @@ def log_nid_iso_gauss_tilt(dataset, parameters):
         + trunc_gaussian(cos_tilt_2, mu_spin, sigma_spin, lower=-1, upper=1)
     )
 
+    return jnp.logaddexp(iso, gauss)
+
+
+def log_marg_iso_gauss_spin_tilt(cos_tau, xi_spin, sigma_spin, mu_spin=1):
+    iso = jnp.log((1 - xi_spin) / 2)
+    gauss = (
+        jnp.log(xi_spin)
+        + trunc_gaussian(cos_tau, mu_spin, sigma_spin, lower=-1, upper=1)
+    )
     return jnp.logaddexp(iso, gauss)

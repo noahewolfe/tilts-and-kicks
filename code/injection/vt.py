@@ -15,14 +15,14 @@ import jax.numpy as jnp
 import bilby
 
 from bilby.gw.detector import PowerSpectralDensity
-from bilby.core.prior import Uniform, Sine, Cosine, Interped
+from bilby.core.prior import Uniform, Sine, Cosine
 from bilby.gw.source import lal_binary_black_hole
 from bilby.gw.conversion import convert_to_lal_binary_black_hole_parameters
 from bilby.gw.conversion import generate_all_bbh_parameters
 
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+from pixelpop.models.gwpop_models import trunc_gaussian
 
-from models import truncnorm
 from models import iso_gauss_spin_tilt
 from models import marg_iso_gauss_spin_tilt
 from models import log_powerlaw_redshift
@@ -160,14 +160,19 @@ def get_inj_priors(model, parameters, outdir=None):
 
     if model['cos_tilt'] == 'iso_gauss':
         cts = np.linspace(-1, 1, 10_000)
-        p_ct = truncnorm(
+        log_p_ct = trunc_gaussian(
             cts,
             parameters['mu_spin'],
             parameters['sigma_spin'],
-            1,
-            -1
+            lower=-1,
+            upper=1
         )
-        ct_prior = Interped(cts, p_ct, minimum=-1, maximum=1)
+        ct_prior = LogInterped(
+            cts,
+            log_p_ct,
+            minimum=-1,
+            maximum=1
+        )
         inj_priors['cos_tilt_gauss'] = ct_prior
     else:
         if model['cos_tilt'] == 'uniform':
@@ -186,14 +191,18 @@ def get_inj_priors(model, parameters, outdir=None):
             )
 
     if model['a_1'] == 'iid_truncnorm' and model['a_2'] == 'iid_truncnorm':
-        mu_chi = parameters['mu_chi']
-        sigma_chi = parameters['sigma_chi']
         mags = np.linspace(0, 1, 500)
-        pchi = truncnorm(mags, mu_chi, sigma_chi, high=1, low=0)
-
-        chi_prior = Interped(
+        log_pchi = trunc_gaussian(
             mags,
-            pchi,
+            parameters['mu_chi'],
+            parameters['sigma_chi'],
+            lower=0,
+            upper=1
+        )
+
+        chi_prior = LogInterped(
+            mags,
+            log_pchi,
             minimum=min(mags),
             maximum=max(mags),
             name='chi'
@@ -207,12 +216,8 @@ def get_inj_priors(model, parameters, outdir=None):
         raise ValueError(f"unknown spin models {model['a_1'], model['a_2']}")
 
     if model['redshift'] == 'powerlaw':
-        z_max = parameters['z_max']
-        zs = np.linspace(1e-5, z_max, 1000)
-        log_pz = np.array(log_powerlaw_redshift(
-            dict(redshift=zs),
-            parameters
-        ))
+        zs = np.linspace(1e-5, parameters['z_max'], 1_000)
+        log_pz = log_powerlaw_redshift(dict(redshift=zs), parameters)
         z_prior = LogInterped(
             zs,
             log_pz,
@@ -225,8 +230,8 @@ def get_inj_priors(model, parameters, outdir=None):
         raise ValueError(f"unknown redshift model {model['redshift']}")
 
     if model['mass_1_source'] == 'highpass_broken_powerlaw_two_peaks':
-        m1s = np.linspace(3, 300, 1_000)
-        p_m1 = np.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+        m1s = np.linspace(3, 300, 5_000)
+        log_p_m1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
             dict(mass_1=m1s),
             alpha_1=parameters['alpha_1'],
             alpha_2=parameters['alpha_2'],
@@ -242,10 +247,10 @@ def get_inj_priors(model, parameters, outdir=None):
             sigpp_2=parameters['sigpp_2'],
             mmax=300.0,
             gaussian_mass_maximum=100.0
-        ))
-        m1_prior = Interped(
+        )
+        m1_prior = LogInterped(
             m1s,
-            p_m1,
+            log_p_m1,
             minimum=min(m1s),
             maximum=max(m1s),
             name='mass_1_source'
@@ -327,8 +332,8 @@ def draw_injection(priors, model, parameters):
             )
 
         @jax.jit
-        def calc_p_q(this_m1):
-            return jnp.exp(PowerlawPlusPeak_MassRatio(
+        def calc_log_p_q(this_m1):
+            return PowerlawPlusPeak_MassRatio(
                 dict(
                     mass_1=this_m1 * jnp.ones(jnp.shape(qs)),
                     mass_ratio=qs
@@ -336,9 +341,16 @@ def draw_injection(priors, model, parameters):
                 slope=parameters['beta'],
                 minimum=mmin,
                 delta_m=delta_m
-            ))
-        pq = calc_p_q(this_m1)
-        q_prior = Interped(qs, pq, minimum=qmin, maximum=1, name='q')
+            )
+
+        log_pq = calc_log_p_q(this_m1)
+        q_prior = LogInterped(
+            qs,
+            log_pq,
+            minimum=qmin,
+            maximum=1,
+            name='q'
+        )
         injection_parameters['mass_ratio'] = q_prior.sample()
         priors['mass_ratio'] = q_prior
     else:
@@ -361,18 +373,17 @@ def draw_injection(priors, model, parameters):
         injection_parameters['cos_tilt_1'] = ct1
         injection_parameters['cos_tilt_2'] = ct2
 
-        log_p_ct1 = np.log(
-            marg_iso_gauss_spin_tilt(ct1, xi_spin, sigma_spin, mu_spin)
+        log_p_ct1 = log_marg_iso_gauss_spin_tilt(
+            ct1, xi_spin, sigma_spin, mu_spin=mu_spin
         )
-        log_p_both = np.log(iso_gauss_spin_tilt(
+        log_p_both = log_nid_iso_gauss_tilt(
+            dict(cos_tilt_1=ct1, cos_tilt_2=ct2),
             dict(
-                cos_tilt_1=ct1,
-                cos_tilt_2=ct2
-            ),
-            xi_spin,
-            sigma_spin,
-            mu_spin
-        ))
+                xi_spin=xi_spin,
+                sigma_spin=sigma_spin,
+                mu_spin=mu_spin
+            )
+        )
 
         log_p_ct2_given_ct1 = log_p_both - log_p_ct1
 
@@ -403,8 +414,7 @@ def is_hopeless(intrange_net, injection_parameters, make_fast=True):
             max_z = float(intrange_net(mtot_src))
         except ValueError as e:
             # if the total mass is outside the interpolation range
-            # we just go ahead and compute SNRs. not the most
-            # efficient; TODO
+            # we just go ahead and compute SNRs.
             if (
                 len(e.args) > 0
                 and (

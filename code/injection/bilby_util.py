@@ -13,9 +13,24 @@ def _log_expm1_over_x(x):
     """Stable log((exp(x) - 1) / x)."""
     x = np.asarray(x, dtype=np.float64)
     out = np.empty_like(x)
+
     small = np.abs(x) < 1e-7
+    neg = x < -1e-7
+    pos_mid = np.logical_and(x >= 1e-7, x <= 50.0)
+    pos_large = x > 50.0
+
+    # log((e^x - 1) / x) = x/2 + O(x^2) near zero
     out[small] = x[small] / 2 + x[small] ** 2 / 24
-    out[~small] = np.log(np.expm1(x[~small]) / x[~small])
+    # x < 0: use log1p(-exp(x)) - log(-x) to avoid cancellation near 0-
+    out[neg] = np.log1p(-np.exp(x[neg])) - np.log(-x[neg])
+    # moderate positive x: expm1 is safe
+    out[pos_mid] = np.log(np.expm1(x[pos_mid])) - np.log(x[pos_mid])
+    # large positive x: log(e^x - 1) = x + log1p(-e^-x), avoids overflow
+    out[pos_large] = (
+        x[pos_large]
+        + np.log1p(-np.exp(-x[pos_large]))
+        - np.log(x[pos_large])
+    )
     return out
 
 
@@ -168,11 +183,20 @@ class LogInterped(Prior):
             r = np.exp(np.clip(log_r, -np.inf, 0.0))
 
             k = self._dlogp[idx]
-            t = np.where(
-                np.abs(k) < 1e-10,
-                r,
-                np.log1p(r * np.expm1(k)) / k
-            )
+            t = np.empty_like(r)
+            flat = np.abs(k) < 1e-10
+            large = k > 50.0
+            other = np.logical_not(np.logical_or(flat, large))
+
+            # k -> 0 limit
+            t[flat] = r[flat]
+            # log(1 + r (e^k - 1)) = k + log(r + (1-r)e^-k), stable for k >> 1
+            t[large] = (
+                k[large]
+                + np.log(r[large] + (1.0 - r[large]) * np.exp(-k[large]))
+            ) / k[large]
+            # safe for moderate/negative k
+            t[other] = np.log1p(r[other] * np.expm1(k[other])) / k[other]
             out[mask] = self.xx[idx] + self._dx[idx] * t
 
         return float(out) if scalar else out

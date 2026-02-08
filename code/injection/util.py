@@ -2,6 +2,73 @@ import os
 import json
 
 
+def choose_log_grid(log_density, lower, upper, eps, n_init=11, n_max=10_000):
+    """
+    Adaptively choose interpolation points for any 1D log-density function.
+
+    Refines intervals until midpoint error of piecewise-linear interpolation
+    in log-density is <= eps (or n_max is reached).
+    """
+    import numpy as np
+
+    if eps <= 0:
+        raise ValueError('eps must be > 0')
+    if n_init < 2:
+        raise ValueError('n_init must be >= 2')
+    if n_max < n_init:
+        raise ValueError('n_max must be >= n_init')
+    if not upper > lower:
+        raise ValueError('upper must be > lower')
+
+    xs = np.linspace(lower, upper, int(n_init), dtype=np.float64)
+
+    def eval_logpdf(x):
+        y = np.asarray(log_density(x), dtype=np.float64)
+        if y.shape != x.shape:
+            raise ValueError(
+                'log_density(x) must return an array with same shape as x'
+            )
+        if not np.all(np.isfinite(y)):
+            raise ValueError(
+                'log_density returned non-finite values on candidate grid'
+            )
+        return y
+
+    logp = eval_logpdf(xs)
+    err = np.array([0.0], dtype=np.float64)
+
+    while True:
+        mids = 0.5 * (xs[:-1] + xs[1:])
+        logp_mid = eval_logpdf(mids)
+        logp_lin_mid = 0.5 * (logp[:-1] + logp[1:])
+        err = np.abs(logp_mid - logp_lin_mid)
+
+        bad = err > eps
+        if not np.any(bad):
+            break
+
+        add = mids[bad]
+        if len(xs) + len(add) > n_max:
+            n_add = n_max - len(xs)
+            if n_add <= 0:
+                break
+            idx = np.argsort(err)[-n_add:]
+            add = mids[idx]
+
+        xs = np.sort(np.concatenate([xs, add]))
+        logp = eval_logpdf(xs)
+
+        if len(xs) >= n_max:
+            break
+
+    return {
+        'xx': xs,
+        'log_yy': logp,
+        'n_grid': int(len(xs)),
+        'max_abs_log_error': float(np.max(err)) if len(err) else 0.0
+    }
+
+
 def plot_corner(xs, fname=None, trim=None, **kwargs):
     import numpy as np
     import corner
