@@ -1,4 +1,5 @@
 # custom:
+._*.py
 software/
 
 ## python .gitignore: https://github.com/github/gitignore/blob/main/Python.gitignore
