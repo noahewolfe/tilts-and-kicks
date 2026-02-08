@@ -3,6 +3,7 @@ import json
 import pickle
 import argparse
 from copy import deepcopy
+from ast import literal_eval
 
 import h5py
 import h5ify
@@ -76,8 +77,13 @@ def parse_args():
     write_config(args)
     seed = args.seed + args.init_seed
     model = args.model
-    with open(model, 'r') as f:
-        model = json.loads(f.read())
+
+    if os.path.isfile(model):
+        with open(model, 'r') as f:
+            model = json.loads(f.read())
+    else:
+        model = literal_eval(model)
+
     return (
         args.outdir,
         args.ninj,
@@ -819,7 +825,7 @@ if __name__ == '__main__':
             commit=commit_hash,
             parameters=parameters,
             injection_waveform_approximant=injection_waveform_approximant,
-            recovery_waveform_approximant=recovery_waveform_approximant, 
+            recovery_waveform_approximant=recovery_waveform_approximant,
             **kwargs
         )
 
