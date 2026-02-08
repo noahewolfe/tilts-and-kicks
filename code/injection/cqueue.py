@@ -36,7 +36,7 @@ if __name__ == '__main__':
 
     submit = fr"""
 universe         = vanilla
-executable       = /home/noah.wolfe/.conda/envs/seqpop/bin/python
+executable       = /home/noah.wolfe/.conda/envs/just-for-kicks/bin/python
 accounting_group = ligo.sim.o4.cbc.bayesianpopulations.parametric
 
 initialdir       = {initialdir}
