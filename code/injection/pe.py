@@ -108,10 +108,12 @@ def get_mchirp_width(mchirp, user_width=None):
 
 
 def digest_args(args):
+    outdir = args.outdir
+    os.makedirs(outdir, exist_ok=True)
+
     write_config(args)
 
     overwrite = args.overwrite
-    outdir = args.outdir
     reweight = args.reweight
 
     paths = [
@@ -157,7 +159,7 @@ def digest_args(args):
     reference_frequency = 20
 
     catalog_ext = os.path.splitext(catalog_path)[1]
-    if catalog_ext == '.hdf5':
+    if catalog_ext in ['.h5', '.hdf5']:
         catalog = h5ify.load(catalog_path)
     else:
         raise NotImplementedError(f'catalog of type {catalog_ext}')
@@ -182,6 +184,9 @@ def digest_args(args):
                 injection_parameters[k] = catalog[k][event_index]
         else:
             injection_parameters[k] = catalog[k][event_index]
+
+    for k, v in injection_parameters.items():
+        injection_parameters[k] = np.asarray(v).item()
 
     true_m1 = injection_parameters.pop('mass_1')
     true_m2 = injection_parameters.pop('mass_2')

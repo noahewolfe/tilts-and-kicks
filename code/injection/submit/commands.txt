@@ -9,3 +9,5 @@ python cqueue.py vt.py --submit --parentdir ../../data/vt/xp/sigma-spin-1e-3-mor
 python cqueue.py vt.py --submit --parentdir ../../data/vt/xp/sigma-spin-1e-2 --queue 1000 --args '--ninj 1000 --snr-threshold 11 --init-seed 2000 --model ./parameters/model.json --parameters ./parameters/vt-o4a-strong-maxl-sigma-spin-1e-2.json'
 
 python cqueue.py pe.py --parentdir ../../data/pe/xp --queue 350 --args '--npool 1 --prior-path ./priors/bbh.prior --time-reference H1 --nlive 250 --catalog-path ../../data/vt/xp/cat.hdf5 --injection-waveform xp --recovery-waveform xp'
+
+python cqueue.py pe.py --avx --parentdir ../../data/pe/tests/260207 --queue 350 --args '--npool 1 --prior-path ./priors/bbh.prior --time-reference H1 --nlive 250 --catalog-path ../../data/vt/tests/260207/cat.h5 --injection-waveform xp --recovery-waveform xp'
