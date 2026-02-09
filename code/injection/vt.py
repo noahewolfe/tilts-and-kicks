@@ -749,7 +749,7 @@ def concat(outdir, load_all=False):
 
             for k, v in extras.items():
                 if k != 'attrs' and k not in dsets.keys():
-                    grp = f.create_group('k')
+                    grp = f.create_group(k)
                     for s in v.keys():
                         grp.create_dataset(s, data=v[s])
     else:
