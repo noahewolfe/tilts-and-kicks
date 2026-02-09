@@ -13,6 +13,11 @@ import jax.numpy as jnp
 
 from jax_tqdm import scan_tqdm
 
+# TODO: monkey patch because bilby dynesty wrapper
+# is probably not compatible with numpy version < 2
+if not hasattr(np.linalg, "linalg"):
+    np.linalg.linalg = np.linalg
+
 from bilby import run_sampler
 from bilby.core.prior import Uniform
 from bilby.core.prior import ConditionalPriorDict
@@ -27,22 +32,25 @@ from models import log_nid_iso_gauss_tilt
 from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
 
 nobs = 350
-maximum_variance = 5 
-outdir = '../../data/runs/tests/260207-n350-rho15'
+maximum_variance = 5
 
 parser = ArgumentParser()
+parser.add_argument('--outdir', type=str)
 parser.add_argument('--path', help='path to vt file')
 parser.add_argument('--truths', help='path to json file with true parameters')
+parser.add_argument('--seed', default=42, type=int)
 parser.add_argument('--cut', default=11, type=int)
+
 
 def parse_args():
     """ return command-line arguments """
-    os.makedirs(outdir, exist_ok=True)
     args = parser.parse_args()
+    outdir = args.outdir
+    os.makedirs(outdir, exist_ok=True)
     with open(args.truths, 'r') as f:
         truths = json.loads(f.read())
         truths = {k : np.asarray(v).item() for k, v in truths.items()}
-    return args.path, truths, args.cut
+    return outdir, args.path, truths, args.seed, args.cut
 
 
 def log_model(dataset, parameters):
@@ -88,7 +96,7 @@ def log_model(dataset, parameters):
     return log_p_m1 + log_p_q + log_p_z + log_p_chi + log_p_tau
 
 
-def get_data(key, nobs, path, cut=11):
+def get_data(outdir, key, nobs, path, cut=11):
     """ load in detected injections; format for pdet estimation and delta
         posteriors.
     """
@@ -126,7 +134,6 @@ def get_data(key, nobs, path, cut=11):
         p = h5ify.load(f'{outdir}/posteriors.h5')
         for k, v in posteriors.items():
             assert np.all(v == p[k])        
-#assert posteriors == p
     else:
         h5ify.save(f'{outdir}/posteriors.h5', posteriors)
 
@@ -139,12 +146,18 @@ def taper(v):
 
 
 if __name__ == '__main__':
-    path, truths, cut = parse_args()
+    outdir, path, truths, seed, cut = parse_args()
     truths['log_sigma_spin'] = np.log(truths.pop('sigma_spin')).item()
     truths['log_mu_spin'] = np.log(truths.pop('mu_spin')).item()
     print(truths)
 
-    posteriors, injections = get_data(jax.random.key(42), nobs, path, cut=cut)
+    posteriors, injections = get_data(
+        outdir,
+        jax.random.key(seed),
+        nobs,
+        path,
+        cut=cut
+    )
 
     likelihood = get_bilby_likelihood(
         log_model,
@@ -174,6 +187,7 @@ if __name__ == '__main__':
         likelihood=likelihood,
         priors=priors,
         outdir=outdir,
+        label='test',
         sampler='dynesty',
         sample='acceptance-walk',
         naccept=5,
@@ -194,3 +208,6 @@ if __name__ == '__main__':
     _, extras = jax.lax.scan(step, None, (jnp.arange(n), posterior))
     posterior = dict(**posterior, **extras)
     h5ify.save(f'{outdir}/extras.h5', posterior, mode='w')
+
+    result.posterior['variance'] = posterior['variance']
+    result.plot_corner(truths=truths)
