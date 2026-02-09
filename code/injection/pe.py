@@ -113,7 +113,7 @@ def digest_args(args):
     overwrite = args.overwrite
     outdir = args.outdir
     reweight = args.reweight
-    
+
     paths = [
         f'{outdir}/dynesty_result.json', f'{outdir}/dynesty_result.hdf5'
     ]
@@ -248,7 +248,9 @@ def digest_args(args):
     )
 
     priors['luminosity_distance'].minimum = (
-        max(1, injection_parameters['luminosity_distance'] / 4 - delta_dl_bound)
+        max(
+            1, injection_parameters['luminosity_distance'] / 4 - delta_dl_bound
+        )
     )
 
     # Note: I copied the '4.2' from salvo's script for
@@ -258,7 +260,7 @@ def digest_args(args):
     )
 
     likelihood_kwargs = dict()
-   
+
     use_full_likelihood = args.use_full_likelihood 
     if not use_full_likelihood:
         fiducial_parameters = deepcopy(injection_parameters)
@@ -599,13 +601,15 @@ if __name__ == '__main__':
     print('--- \\ waveform_generator for likelihood evaluations / ---')
     waveform_arguments, waveform_generator = get_waveform_generator(
         duration, minimum_frequency, sampling_frequency, reference_frequency,
-        recovery_waveform, phenomxprecversion, relative_binning=not use_full_likelihood
+        recovery_waveform, phenomxprecversion,
+        relative_binning=not use_full_likelihood
     )
 
     print('--- \\ waveform_generator for the injection / ---')
     _, injection_waveform_generator = get_waveform_generator(
         duration, minimum_frequency, sampling_frequency, reference_frequency,
-        injection_waveform, phenomxprecversion, relative_binning=not use_full_likelihood
+        injection_waveform, phenomxprecversion,
+        relative_binning=not use_full_likelihood
     )
 
     ifos = get_network(
@@ -822,9 +826,11 @@ if __name__ == '__main__':
             # Pool map with tqdm progress bar
             with Pool(npool) as pool:
                 log_weights = list(
-                    tqdm(pool.imap(compute_weight, param_list, chunksize=100),
-                    total=n,
-                    desc="Computing weights")
+                    tqdm(
+                        pool.imap(compute_weight, param_list, chunksize=100),
+                        total=n,
+                        desc="Computing weights"
+                    )
                 )
 
             return np.array(log_weights)
