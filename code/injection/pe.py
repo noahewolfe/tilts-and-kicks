@@ -1,7 +1,6 @@
 # run PE. this is designed to be used with condor
 
 import os
-import ast
 import pickle
 import argparse
 from shutil import move
@@ -52,20 +51,22 @@ parameter_keys = [
 ]
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--outdir', type=str)
-parser.add_argument('--npool', type=int)
-parser.add_argument('--prior-path', type=str)
-parser.add_argument('--mchirp-width', type=float, default=-1)
-parser.add_argument('--index', type=int)
-parser.add_argument('--catalog-path', type=str)
+parser.add_argument('--outdir', type=str, required=True)
+parser.add_argument('--npool', type=int, required=True)
+parser.add_argument('--prior-path', type=str, required=True)
+parser.add_argument(
+    '--mchirp-width',
+    type=float,
+    default=None,
+    help='Half-width of chirp_mass prior window. If omitted, use heuristic.'
+)
+parser.add_argument('--index', type=int, required=True)
+parser.add_argument('--catalog-path', type=str, required=True)
 
-parser.add_argument('--reference-frame', type=str, default="'H1L1'")
+parser.add_argument('--reference-frame', type=str, default='H1L1')
 parser.add_argument('--time-reference', type=str, default='best')
 
 parser.add_argument('--nlive', type=int, default=500)
-parser.add_argument('--naccept', type=int, default=60)
-parser.add_argument('--bound', type=str, default='live')
-parser.add_argument('--proposals', type=list, default=['diff'])
 
 parser.add_argument('--rerun-with-wider-priors', action='store_true')
 parser.add_argument('--rerun-mass-delta', type=int, default=10)
@@ -81,6 +82,7 @@ parser.add_argument('--recovery-waveform', default='xp')
 parser.add_argument('--overwrite', action='store_true')
 parser.add_argument('--use-full-likelihood', action='store_true')
 
+
 def get_waveform(s):
     if s not in ['IMRPhenomXP', 'IMRPhenomXPHM']:
         if s == 'xp':
@@ -91,6 +93,18 @@ def get_waveform(s):
             raise ValueError(f'Unknown waveform {s}')
     else:
         return s
+
+
+def get_mchirp_width(mchirp, user_width=None):
+    if user_width is None:
+        # this is an approximate & conservative fit based off of salvo's runs
+        # the maximum width of 46 reflects salvo's original PE script
+        return 1 / 2 * min(46, 1e-2 * mchirp**(5 / 2))
+
+    if user_width <= 0:
+        raise ValueError('--mchirp-width must be > 0 when provided.')
+
+    return float(user_width)
 
 
 def digest_args(args):
@@ -109,24 +123,21 @@ def digest_args(args):
         for res_path in paths:
             if os.path.isfile(res_path):
                 found = True
-                print(f'result file already exits at {res_path}')
+                print(f'result file already exists at {res_path}')
 
         if not overwrite and found:
             print('pe already done')
             print('done.')
-            quit()
+            raise SystemExit(0)
 
         if reweight and not found:
             print('nothing to reweight')
             print('done.')
-            quit()
+            raise SystemExit(0)
 
     npool = args.npool
 
     nlive = args.nlive
-    naccept = args.naccept
-    bound = args.bound
-    proposals = args.proposals
 
     catalog_path = args.catalog_path
     event_index = args.index
@@ -156,8 +167,8 @@ def digest_args(args):
     injection_parameters = {}
     for k in parameter_keys + ['mass_1', 'mass_2']:
         if k == 'luminosity_distance':
-            if k not in catalog.keys():
-                if 'redshift' not in catalog.keys():
+            if k not in catalog:
+                if 'redshift' not in catalog:
                     raise ValueError(
                         'luminosity distance nor redshift in catalog!! :('
                     )
@@ -186,16 +197,8 @@ def digest_args(args):
     prior_path = args.prior_path
     priors = bilby.gw.prior.BBHPriorDict(prior_path)
 
-    if not args.mchirp_width > 0:
-        mchirp = injection_parameters['chirp_mass']
-
-        # this is an approximate & conservative fit based off of salvo's runs
-        # the maximum width of 46 reflects salvo's original PE script
-        mchirp_width = 1 / 2 * min(46, 1e-2 * mchirp**(5 / 2))
-    else:
-        mchirp_width = np.inf
-
-    mchirp_width = float(mchirp_width)
+    mchirp = injection_parameters['chirp_mass']
+    mchirp_width = get_mchirp_width(mchirp, args.mchirp_width)
     if rerun_with_wider_priors:
         mchirp_width += rerun_mass_delta
 
@@ -209,7 +212,6 @@ def digest_args(args):
 
         def compute_duration(mass_1):
             """ this is a conservative computation, as we assume q = 1 """
-
             try:
                 raw_duration = bilby.gw.utils.calculate_time_to_merger(
                     minimum_frequency,
@@ -236,23 +238,17 @@ def digest_args(args):
 
     print(f'Using {prior_lowest_allowed_mchirp} as the lowest allowed mchirp')
     priors['chirp_mass'].minimum = (
-        max([
+        max(
             prior_lowest_allowed_mchirp,
             injection_parameters['chirp_mass'] - mchirp_width
-        ])
+        )
     )
     priors['chirp_mass'].maximum = (
-        min([
-            200,
-            injection_parameters['chirp_mass'] + mchirp_width
-        ])
+        min(200, injection_parameters['chirp_mass'] + mchirp_width)
     )
 
     priors['luminosity_distance'].minimum = (
-        max([
-            1,
-            injection_parameters['luminosity_distance'] / 4 - delta_dl_bound
-        ])
+        max(1, injection_parameters['luminosity_distance'] / 4 - delta_dl_bound)
     )
 
     # Note: I copied the '4.2' from salvo's script for
@@ -270,15 +266,13 @@ def digest_args(args):
         likelihood_kwargs['epsilon'] = 0.025
 
     reference_frame = args.reference_frame
-    if reference_frame != 'sky':
-        reference_frame = ast.literal_eval(reference_frame)
     likelihood_kwargs['reference_frame'] = reference_frame
 
     if reference_frame != 'sky':
-        if 'ra' in priors.keys():
+        if 'ra' in priors:
             del priors['ra']
 
-        if 'dec' in priors.keys():
+        if 'dec' in priors:
             del priors['dec']
 
         priors["zenith"] = bilby.core.prior.Sine(latex_label="$\\kappa$")
@@ -292,20 +286,33 @@ def digest_args(args):
     time_reference = args.time_reference
     likelihood_kwargs['time_reference'] = time_reference
     if time_reference != 'geocent':
-        if 'geocent_time' in priors.keys():
+        if 'geocent_time' in priors:
             del priors['geocent_time']
 
-    optimal_network_snr = catalog['network_optimal_snr'][event_index]
-    matched_filter_network_snr = catalog.get(
-        'network_matched_filter_snr'
-    )[event_index]
+    required_snr_keys = [
+        'network_optimal_snr',
+        'network_matched_filter_snr',
+        'injection_network_optimal_snr',
+        'injection_network_matched_filter_snr',
+    ]
+    missing_snr_keys = [key for key in required_snr_keys if key not in catalog]
+    if missing_snr_keys:
+        raise KeyError(
+            f'Missing required catalog key(s): {missing_snr_keys} '
+            f'for event {event_index} in {catalog_path}'
+        )
 
-    injection_optimal_network_snr = catalog.get(
+    optimal_network_snr = catalog['network_optimal_snr'][event_index]
+    matched_filter_network_snr = catalog[
+        'network_matched_filter_snr'
+    ][event_index]
+
+    injection_optimal_network_snr = catalog[
         'injection_network_optimal_snr'
-    )[event_index]
-    injection_matched_filter_network_snr = catalog.get(
+    ][event_index]
+    injection_matched_filter_network_snr = catalog[
         'injection_network_matched_filter_snr'
-    )[event_index] 
+    ][event_index]
 
     rerun = rerun_with_wider_priors
 
@@ -331,9 +338,6 @@ def digest_args(args):
         network,
         likelihood_kwargs,
         nlive,
-        naccept,
-        bound,
-        proposals,
         optimal_network_snr,
         matched_filter_network_snr,
         injection_optimal_network_snr,
@@ -378,13 +382,41 @@ def get_waveform_generator(
     )
 
 
-def combine(outdir, exclude=[], append=False):
+def validate_snr(
+    label,
+    snr_kind,
+    observed_snr,
+    expected_snr
+):
+    if np.isclose(observed_snr, expected_snr):
+        return
+
+    if snr_kind == 'optimal':
+        details = 'Are you sure the injection parameters match?'
+    elif snr_kind == 'matched filter':
+        details = (
+            'Are you sure the noise seeds match? '
+            'Do you have the correct numpy and bilby versions?'
+        )
+    else:
+        raise ValueError(f'Unknown snr_kind={snr_kind!r}')
+
+    raise ValueError(
+        f'{label} {snr_kind} network snrs dont match! '
+        f'Got {observed_snr} vs. {expected_snr}. '
+        f'{details}'
+    )
+
+
+def combine(outdir, exclude=None, append=False):
     # TODO: save the actual bilby prior dict
     from wcosmo.wcosmo import dDLdz
     from astropy.cosmology import Planck15
     from gwpopulation_pipe.data_collection import (
         primary_mass_to_chirp_mass_jacobian
     )
+
+    exclude = set() if exclude is None else set(exclude)
 
     outdir = os.path.abspath(outdir)
     dirs = [
@@ -398,7 +430,7 @@ def combine(outdir, exclude=[], append=False):
     ]
     for i, d in enumerate(dirs):
         if not os.path.isfile(f'{d}/dynesty_result.json'):
-            exclude.append(i)
+            exclude.add(i)
             print(f'no result found in {d}')
 
     def load(i):
@@ -413,16 +445,16 @@ def combine(outdir, exclude=[], append=False):
         posterior['mf_net_snr'] = mf_net_snr
 
         ifos = result.meta_data['likelihood']['interferometers']
-        assert all([ifo in ifos.keys() for ifo in ['H1', 'L1', 'V1']])
+        assert all(ifo in ifos for ifo in ['H1', 'L1', 'V1'])
 
         true_mf_net_snr = 0
-        for ifo in ifos.keys():
+        for ifo in ifos:
             true_mf_net_snr += np.abs(ifos[ifo]['matched_filter_SNR'])**2
         true_mf_net_snr = np.sqrt(true_mf_net_snr)
         injection_parameters['network_matched_filter_snr'] = true_mf_net_snr
 
-        injection_parameters.pop('reference_frequency')
-        injection_parameters.pop('waveform_approximant')
+        injection_parameters.pop('reference_frequency', None)
+        injection_parameters.pop('waveform_approximant', None)
 
         prior_dict = str(
             BBHPriorDict(f'{dirs[i]}/dynesty.prior')._get_json_dict()
@@ -472,20 +504,28 @@ def combine(outdir, exclude=[], append=False):
             if i in exclude:
                 continue
 
-            if append and str(i) in f_full.keys():
+            if append and str(i) in f_full:
                 continue
 
             try:
                 prior_dict, injection_parameters, posterior = load(i)
                 posterior_gwpop = compute_posterior_for_gwpop(posterior)
-            except:
-                print(f'error loading {i}')
+            except (
+                AssertionError,
+                FileNotFoundError,
+                IndexError,
+                KeyError,
+                OSError,
+                TypeError,
+                ValueError
+            ) as exc:
+                print(f'error loading {i}: {exc}')
                 continue
 
             g_full = f_full.create_group(str(i))
             g_post = f_post.create_group(str(i))
 
-            for key in injection_parameters.keys():
+            for key in injection_parameters:
                 val = injection_parameters[key]
                 if isinstance(val, np.ndarray):
                     val = val.item()
@@ -495,13 +535,13 @@ def combine(outdir, exclude=[], append=False):
             g_full.attrs['prior_dict'] = prior_dict
             g_post.attrs['prior_dict'] = prior_dict
 
-            for key in posterior.keys():
+            for key in posterior:
                 g_full.create_dataset(
                     key,
                     data=posterior[key].values
                 )
 
-            for key in posterior_gwpop.keys():
+            for key in posterior_gwpop:
                 g_post.create_dataset(
                     key,
                     data=posterior_gwpop[key].values
@@ -529,9 +569,6 @@ if __name__ == '__main__':
         network,
         likelihood_kwargs,
         nlive,
-        naccept,
-        bound,
-        proposals,
         optimal_network_snr,
         matched_filter_network_snr,
         injection_optimal_network_snr,
@@ -550,10 +587,13 @@ if __name__ == '__main__':
     else:
         likelihood_class = RelativeBinningGravitationalWaveTransient
 
+    outdir_suffixes = []
     if rerun:
-        outdir += '_rerun'
-    if outdir_extras is not None:
-        outdir += f'_{outdir_extras}'
+        outdir_suffixes.append('rerun')
+    if outdir_extras:
+        outdir_suffixes.append(outdir_extras)
+    if outdir_suffixes:
+        outdir = f'{outdir}_{"_".join(outdir_suffixes)}'
     os.makedirs(outdir, exist_ok=True)
 
     print('--- \\ waveform_generator for likelihood evaluations / ---')
@@ -605,31 +645,24 @@ if __name__ == '__main__':
         parameters=injection_parameters
     )
 
-    opt_net_snr = np.sqrt(sum([
-        ifo.meta_data['optimal_SNR']**2 for ifo in ifos
-    ]))
-    mf_net_snr = np.sqrt(sum([
+    opt_net_snr = np.sqrt(sum(ifo.meta_data['optimal_SNR']**2 for ifo in ifos))
+    mf_net_snr = np.sqrt(sum(
         np.abs(ifo.meta_data['matched_filter_SNR'])**2 for ifo in ifos
-    ]))
+    ))
 
     # 1. check if injected snr computed w/ correct waveform matches
-
-    if not np.isclose(opt_net_snr, injection_optimal_network_snr):
-        raise ValueError(
-            'Injection optimal network snrs dont match for '
-            f'{event_index} in {catalog_path}! '
-            f'Got {opt_net_snr} vs. {injection_optimal_network_snr} in catalog. '
-            'Are you sure the snrs and injection parameters match?'
-        )
-
-    if not np.isclose(mf_net_snr, injection_matched_filter_network_snr):
-        raise ValueError(
-            'Injection matched filter network snrs dont match for '
-            f'{event_index} in {catalog_path}! '
-            f'Got {mf_net_snr} vs. {injection_matched_filter_network_snr} in catalog. '
-            'Are you sure the snrs and noise seeds match? '
-            'Do you have the correct bilby version?'
-        )
+    validate_snr(
+        'Injection',
+        'optimal',
+        opt_net_snr,
+        injection_optimal_network_snr
+    )
+    validate_snr(
+        'Injection',
+        'matched filter',
+        mf_net_snr,
+        injection_matched_filter_network_snr
+    )
 
     # 2. check if recovery snrs match
     if check_recovery_snrs:
@@ -651,22 +684,13 @@ if __name__ == '__main__':
         opt_net_snr = np.sqrt(opt_net_snr)
         mf_net_snr = np.sqrt(mf_net_snr)
 
-        if not np.isclose(opt_net_snr, optimal_network_snr):
-            raise ValueError(
-                'Recovery optimal network snrs dont match for '
-                f'{event_index} in {catalog_path}! '
-                f'Got {opt_net_snr} vs. {optimal_network_snr} in catalog. '
-                'Are you sure the snrs and injection parameters match?'
-            )
-
-        if not np.isclose(mf_net_snr, matched_filter_network_snr):
-            raise ValueError(
-                'Recovery matched filter network snrs dont match for '
-                f'{event_index} in {catalog_path}! '
-                f'Got {mf_net_snr} vs. {matched_filter_network_snr} in catalog. '
-                'Are you sure the snrs and noise seeds match? '
-                'Do you have the correct bilby version?'
-            )
+        validate_snr('Recovery', 'optimal', opt_net_snr, optimal_network_snr)
+        validate_snr(
+            'Recovery',
+            'matched filter',
+            mf_net_snr,
+            matched_filter_network_snr
+        )
 
     with open(f'{outdir}/pols.pkl', 'wb') as f:
         pickle.dump(waveform_polarizations, f)
@@ -716,7 +740,7 @@ if __name__ == '__main__':
             name=key,
         )
 
-    # TODO: ensure that updating priors (eg with key deletion) propogates
+    # TODO: ensure that updating priors (eg with key deletion) propagates
     # into likelihood_kwargs
 
     # dump the priors to a file in the outdir
@@ -768,7 +792,7 @@ if __name__ == '__main__':
         print('main run done-- reweighting!')
 
         alt_waveform_arguments = deepcopy(waveform_arguments)
-        if 'frequency_bin_edges' in alt_waveform_arguments.keys():
+        if 'frequency_bin_edges' in alt_waveform_arguments:
             del alt_waveform_arguments["frequency_bin_edges"]
         del alt_waveform_arguments["fiducial"]
 
@@ -806,7 +830,7 @@ if __name__ == '__main__':
             return np.array(log_weights)
 
         log_weights = parallel_reweight(result.posterior, npool=npool)
-        slw, kss = psislw(log_weights, normalize=False)        
+        _, kss = psislw(log_weights, normalize=False)
         neff, log_z = compute_log_evidence_and_neff(log_weights)
         efficiency = neff / len(log_weights) * 100
         print(f'Reweighting efficiency is {efficiency:.5f}%')
