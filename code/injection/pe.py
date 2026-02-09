@@ -10,6 +10,12 @@ from multiprocessing import Pool
 import h5py
 import h5ify
 import numpy as np
+
+# TODO: monkey patch because bilby dynesty wrapper
+# is probably not compatible with numpy version < 2
+if not hasattr(np.linalg, "linalg"):
+    np.linalg.linalg = np.linalg
+
 from tqdm import trange
 from tqdm import tqdm
 from arviz import psislw
