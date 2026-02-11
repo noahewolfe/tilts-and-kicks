@@ -93,19 +93,45 @@ def rate_ln_likelihood_and_variance(
 def shape_ln_likelihood_and_variance(
     posteriors, injections, density, parameters
 ):
-    pe_log_weights = density(posteriors, parameters) - posteriors['log_prior']
     vt_log_weights = density(injections, parameters) - injections['log_prior']
 
-    nobs, npe = pe_log_weights.shape
-    ln_lkls, pe_variances = jax.vmap(
-        lambda lw: safe_ln_mean_and_variance(lw, npe)
-    )(pe_log_weights)
-    pe_variance = jnp.sum(pe_variances)
+    if isinstance(posteriors, dict):
+        pe_log_weights = (
+            density(posteriors, parameters) - posteriors['log_prior']
+        )
+
+        nobs, npe = pe_log_weights.shape
+        ln_lkls, pe_variances = jax.vmap(
+            lambda lw: safe_ln_mean_and_variance(lw, npe)
+        )(pe_log_weights)
+        ln_lkls_sum = jnp.sum(ln_lkls)
+        pe_variance = jnp.sum(pe_variances)
+    else:
+        nobs = len(posteriors)
+
+        def accumulate(acc, posterior):
+            pe_log_weights = (
+                density(posterior, parameters) - posterior['log_prior']
+            )
+            ln_lkl, variance = safe_ln_mean_and_variance(
+                pe_log_weights, pe_log_weights.shape[0]
+            )
+            return acc[0] + ln_lkl, acc[1] + variance
+
+        ln_lkls_sum, pe_variance = jax.tree.reduce(
+            accumulate,
+            posteriors,
+            initializer=(
+                jnp.zeros((), dtype=vt_log_weights.dtype),
+                jnp.zeros((), dtype=vt_log_weights.dtype)
+            ),
+            is_leaf=lambda x: isinstance(x, dict),
+        )
 
     ninj = injections['total_generated']
     ln_pdet, ln_pdet_variance = safe_ln_mean_and_variance(vt_log_weights, ninj)
 
-    ln_lkl = jnp.sum(ln_lkls) - ln_pdet * nobs
+    ln_lkl = ln_lkls_sum - ln_pdet * nobs
     variance = pe_variance + ln_pdet_variance * nobs**2
     return ln_lkl, variance, pe_variance, ln_pdet_variance, ln_pdet
 

@@ -2,6 +2,7 @@ import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 import jax
 jax.config.update('jax_enable_x64', True)
@@ -31,11 +32,43 @@ snr = 15
 far = 1e-5
 nlive = 100
 
-outdir = f'../../data/inference/cuts/snr{snr}-far{far:.0e}-nlive{nlive}'
+outdir = f'../../data/inference/cuts/xphm-snr{snr}-far{far:.0e}-nlive{nlive}'
 os.makedirs(outdir, exist_ok=True)
 
-events, posteriors, injections = get_data(snr_thresh=snr, far_thresh=far)
+events, posteriors, injections = get_data(
+    snr_thresh=snr,
+    far_thresh=far,
+    prefer_xphm=True
+)
 np.savetxt(f'{outdir}/events.txt', events, fmt='%s')
+
+
+if 'log_prior' in posteriors:
+    print('nobs, npe =', posteriors['log_prior'].shape)
+    ct1_samps = posteriors['cos_tilt_1'].flatten()
+else:
+    print('nobs = ', len(posteriors))
+    rng = np.random.default_rng(1)
+
+    # downsample if there are not a lot of unique samples...
+    for i, (e, p) in enumerate(zip(events, posteriors)):
+        npe = len(p['a_1'])
+        nun = len(np.unique(p['a_1']))
+        frac = nun / npe
+        if frac < 0.99:
+            print(
+                f'Downsampling {e} since {frac} < 0.99 samples unique'
+            )
+            idxs = rng.choice(npe, size=6913, replace=False)
+            posteriors[i] = {k : v[idxs] for k, v in p.items()}
+
+    ct1_samps = np.concatenate([p['cos_tilt_1'] for p in posteriors])
+
+fig, ax = plt.subplots()
+ax.hist(ct1_samps, histtype='step', bins=50, density=True)
+ax.set_xlabel('cos_tilt_1')
+ax.set_ylabel('density')
+fig.savefig(f'{outdir}/concat-ct1.png')
 
 
 def taper(v):
@@ -113,7 +146,7 @@ result = run_sampler(
     likelihood=likelihood,
     priors=priors,
     outdir=outdir,
-    label='test',
+    label='test2',
     sampler='dynesty',
     sample='acceptance-walk',
     naccept=5,

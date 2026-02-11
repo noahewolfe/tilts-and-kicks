@@ -50,7 +50,7 @@ default_exclude = exclude = [
     'GW200115',  # NSBH
     'GW191219',  # NSBH
     'S230529ay',
-    'S230518h',     
+    'S230518h',
     'S190425z',
     'S200105ae',
     'S200115j',
@@ -66,24 +66,39 @@ def get_datadir(datadir, catalog, pars):
     return path
 
 
-def load_and_reduce_pe(path, pars):
-    # TODO: switches for prior choices?
-    with h5py.File(path, 'r') as f:
+def _get_sample_set(f, prefer_xphm=False):
+    keys = list(set(f) - {'history', 'version'})
+
+    wvf = None
+
+    if prefer_xphm:
+        for k in keys:
+            if 'XPHM' in k:
+                wvf = k
+                break
+    else:
         # GWTC-3
         if 'C01:Mixed' in f:
-            data = f['C01:Mixed']['posterior_samples']
+            wvf = 'C01:Mixed'
         # O4a
         elif 'C00:NRSur7dq4' in f:
-            data = f['C00:NRSur7dq4']['posterior_samples']
-
+            wvf = 'C00:NRSur7dq4'
         elif 'C00:Mixed' in f:
-            data = f['C00:Mixed']['posterior_samples']
+            wvf = 'C00:Mixed'
         # O4b
         else:
-            keys = list(set(f) - {'history', 'version'})
             assert len(keys) == 1
-            data = f[keys[0]]['posterior_samples']
+            wvf = keys[0]
 
+    print('using sample set:', wvf)
+
+    return f[wvf]['posterior_samples']
+
+
+def load_and_reduce_pe(path, pars, prefer_xphm=False):
+    # TODO: switches for prior choices?
+    with h5py.File(path, 'r') as f:
+        data = _get_sample_set(f, prefer_xphm=prefer_xphm)
         posterior = {par: data[par][:] for par in pars}
         posterior['prior'] = UniformSourceFrame(
             minimum=posterior['redshift'].min(),
@@ -117,20 +132,37 @@ def get_posteriors(
     save=False,
     xp=np,
     datadir='../../data/lvk',
-    seed=1
+    seed=1,
+    prefer_xphm=False,
+    resample=True
 ):
     gwtc3_list = f'{datadir}/gwtc3.txt'
     all_list = f'{datadir}/all.csv'
 
     datadir = get_datadir(datadir, catalog, pars)
-    datapath = f'{datadir}/posteriors.h5'
+
+    if prefer_xphm:
+        datapath = f'{datadir}/posteriors-xphm.h5'
+    else:
+        datapath = f'{datadir}/posteriors.h5'
 
     if load and os.path.exists(datapath):
+        print(f'loading posteriors from {datapath}')
         data = h5ify.load(datapath)
         posteriors = data['posteriors']
         events = data['events']
-        for par in posteriors:
-            posteriors[par] = xp.array(posteriors[par])
+
+        if 'log_prior' in posteriors:
+            for par in posteriors:
+                posteriors[par] = xp.array(posteriors[par])
+        else:
+            # assumes posteriors is structured like:
+            # { event_name : posterior dict }
+            posteriors = [
+                {k : xp.array(v) for k, v in p.items()}
+                for p in posteriors.values()
+            ]
+
         events = list(map(str, np.array(events).astype(str)))
 
         for event in events:
@@ -200,16 +232,34 @@ def get_posteriors(
             files.pop(events.index(event))
             events.remove(event)
 
-    posteriors = [load_and_reduce_pe(path, pars) for path in tqdm(files)]
-    posteriors = resample_and_reshape_posteriors(posteriors, seed)
+    posteriors = [
+        load_and_reduce_pe(path, pars, prefer_xphm=prefer_xphm)
+        for path in tqdm(files)
+    ]
 
-    if 'mass_ratio' in pars:
-        posteriors['prior'] *= posteriors['mass_1_source']
+    if resample:
+        posteriors = resample_and_reshape_posteriors(posteriors, seed)
+
+        if 'mass_ratio' in pars:
+            posteriors['prior'] *= posteriors['mass_1_source']
+
+    else:
+        if 'mass_ratio' in pars:
+            for i in range(len(posteriors)):
+                posteriors[i]['prior'] *= posteriors[i]['mass_1_source']
+
+        posteriors = {e : p for (e, p) in zip(events, posteriors)}
 
     if save:
         h5ify.save(
             datapath,
-            dict(posteriors=posteriors, events=events, snrs=snrs, fars=fars, catalogs=cats),
+            dict(
+                posteriors=posteriors,
+                events=events,
+                snrs=snrs,
+                fars=fars,
+                catalogs=cats
+            ),
             mode='w',
             compression='gzip',
             compression_opts=9,
@@ -290,7 +340,7 @@ def get_injections(
     injections['cos_tilt_1'] = c1
     injections['cos_tilt_2'] = c2
     injections['redshift'] = z
-    injections['chirp_mass'] = (m1 * m2) ** (3/5) / (m1 + m2) ** (1/5)
+    injections['chirp_mass'] = (m1 * m2) ** (3 / 5) / (m1 + m2) ** (1 / 5)
     injections['geocent_time'] = tc
     injections['snr'] = snr[found]
     injections['far'] = far[found]
@@ -338,10 +388,21 @@ def cut_data(event_data, injections, snr_thresh=10, far_thresh=1):
             events.append(event)
     found = np.array(found)
 
-    posts = {k : v[found] for k, v in posteriors.items()}
+    if isinstance(posteriors, dict):
+        posts = {k : v[found] for k, v in posteriors.items()}
+    elif isinstance(posteriors, list):
+        posts = [p for (p, fi) in zip(posteriors, found) if fi]
+    else:
+        raise ValueError('posteriors need to be a dict or list')
 
-    found = (injections['geocent_time'] < o3_start) & (injections['snr'] >= snr_thresh)
-    found |= (injections['geocent_time'] >= o3_start) & (injections['far'] <= far_thresh)
+    found = (
+        (injections['geocent_time'] < o3_start)
+        & (injections['snr'] >= snr_thresh)
+    )
+    found |= (
+        (injections['geocent_time'] >= o3_start)
+        & (injections['far'] <= far_thresh)
+    )
     injs = {
         k : v[found]
         for k, v in injections.items()
@@ -353,8 +414,8 @@ def cut_data(event_data, injections, snr_thresh=10, far_thresh=1):
     return events, posts, injs
 
 
-def get_data(snr_thresh=10, far_thresh=1):
-    event_data = get_posteriors(load=True)
+def get_data(snr_thresh=10, far_thresh=1, prefer_xphm=False):
+    event_data = get_posteriors(load=True, prefer_xphm=prefer_xphm)
     injections = get_injections(load=True)
     events, posteriors, injections = cut_data(
         event_data,
@@ -363,12 +424,22 @@ def get_data(snr_thresh=10, far_thresh=1):
         far_thresh=far_thresh
     )
 
-    posteriors['mass_1'] = posteriors.pop('mass_1_source')
+    if isinstance(posteriors, dict):
+        posteriors['mass_1'] = posteriors.pop('mass_1_source')
+        posteriors['log_prior'] = np.log(posteriors['prior'])
+    elif isinstance(posteriors, list):
+        for i in range(len(posteriors)):
+            posteriors[i]['mass_1'] = posteriors[i].pop('mass_1_source')
+            posteriors[i]['log_prior'] = np.log(posteriors[i]['prior'])
+    else:
+        raise ValueError('posteriors need to be a dict or list')
 
     injections['mass_1'] = injections.pop('mass_1_source')
     injections['total_generated'] = injections.pop('total')
-
-    posteriors['log_prior'] = np.log(posteriors['prior'])
     injections['log_prior'] = np.log(injections['prior'])
 
     return events, posteriors, injections
+
+
+if __name__ == '__main__':
+    get_posteriors(save=True, prefer_xphm=True, resample=False)

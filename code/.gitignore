@@ -3,6 +3,7 @@ runs/
 submit/condor_logs/*.err
 submit/condor_logs/*.out
 submit/condor_logs/*.log
+xdata/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
