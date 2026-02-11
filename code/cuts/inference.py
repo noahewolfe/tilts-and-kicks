@@ -2,7 +2,6 @@ import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 import jax
 jax.config.update('jax_enable_x64', True)
@@ -14,8 +13,7 @@ from jax_tqdm import scan_tqdm
 from bilby import run_sampler
 from bilby.core.prior import ConditionalPriorDict
 
-from data import get_posteriors
-from data import get_injections
+from data import get_data
 
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
 
@@ -26,40 +24,23 @@ from models import log_iid_spin_mag_truncnorm
 
 from likelihood import get_bilby_likelihood
 
+npri = 100_000
+maximum_variance = 1
 
-def cut_data(event_data, injections, snr=10, far=1):
-    posteriors = event_data[0]
-    event_snrs = event_data[2]
-    event_fars = event_data[3]
-    found = (event_fars < far) | (event_snrs > snr)
-    posts = {k : v[found] for k, v in posteriors.items()}
+snr = 15
+far = 1e-5
+nlive = 100
 
-    found = (injections['far'] < far) | (injections['snr'] > snr)
-    injs = {k : v[found] for k, v in injections.items() if k not in ['time', 'total']}
-    injs['total'] = injections['total']
-    injs['time'] = injections['time']
+outdir = f'../../data/inference/cuts/snr{snr}-far{far:.0e}-nlive{nlive}'
+os.makedirs(outdir, exist_ok=True)
 
-    return posts, injs
+events, posteriors, injections = get_data(snr_thresh=snr, far_thresh=far)
+np.savetxt(f'{outdir}/events.txt', events, fmt='%s')
 
 
-def get_data(snr=10, far=1):
-    event_data = get_posteriors(load=True)
-    injections = get_injections(load=True)
-    posteriors, injections = cut_data(event_data, injections, snr=snr, far=far)
-
-    posteriors['mass_1'] = posteriors.pop('mass_1_source')
-
-    injections['mass_1'] = injections.pop('mass_1_source')
-    injections['total_generated'] = injections.pop('total')
-
-    posteriors['log_prior'] = np.log(posteriors['prior'])
-    injections['log_prior'] = np.log(injections['prior'])
-
-    return posteriors, injections
-
-
-post_snr10, injs_snr10 = get_data(snr=10, far=1)
-post_snr15, injs_snr15 = get_data(snr=15, far=1e-5)
+def taper(v):
+    """ its actually a hard cut! """
+    return jnp.nan_to_num(-1e10 * (v >= maximum_variance), nan=0)
 
 
 def log_model(dataset, parameters):
@@ -95,9 +76,7 @@ def log_model(dataset, parameters):
     )
 
     log_p_z = log_powerlaw_redshift(dataset, parameters)
-
     log_p_chi = log_iid_spin_mag_truncnorm(dataset, parameters)
-
     log_p_tau = log_nid_iso_gauss_tilt(dataset, parameters)
 
     return log_p_m1 + log_p_q + log_p_z + log_p_chi + log_p_tau
@@ -105,31 +84,16 @@ def log_model(dataset, parameters):
 
 priors = ConditionalPriorDict('./priors/lvk.prior')
 
-maximum_variance = 1
-
-
-def taper(v):
-    """ its actually a hard cut! """
-    return jnp.nan_to_num(-1e10 * (v >= maximum_variance), nan=0)
-
 
 likelihood = get_bilby_likelihood(
     log_model,
-    post_snr15,
-    injs_snr15,
+    posteriors,
+    injections,
     taper=taper,
     rate=False
 )
 
 
-outdir = '../../data/inference/cuts/snr15-far1e-5'
-
-
-"""
-npri = 5_000
-
-
-@scan_tqdm(npri)
 def step(carry, d):
     _, x = d
     extras = likelihood.generate_extra_statistics(x)
@@ -137,15 +101,13 @@ def step(carry, d):
 
 
 prior_samples = {k : jnp.array(v) for k, v in priors.sample(npri).items()}
-_, prior_samples = jax.lax.scan(
-    step,
+_, extras = jax.lax.scan(
+    scan_tqdm(npri)(step),
     None,
     (jnp.arange(npri), prior_samples)
 )
-
-os.makedirs(outdir, exist_ok=True)
-h5ify.save(f'{outdir}/prior.h5', prior_samples)
-"""
+extras['samples'] = prior_samples
+h5ify.save(f'{outdir}/prior.h5', extras, mode='w')
 
 result = run_sampler(
     likelihood=likelihood,
@@ -155,6 +117,19 @@ result = run_sampler(
     sampler='dynesty',
     sample='acceptance-walk',
     naccept=5,
-    nlive=100,
-    # need enough live points to resolve w/in and w/o variance cut ...
+    nlive=nlive,
 )
+
+result.plot_corner()
+
+nsamps = len(result.posterior)
+samples = result.posterior.to_dict('list')
+samples = {k : jnp.array(v) for k, v in samples.items()}
+
+_, extras = jax.lax.scan(
+    scan_tqdm(nsamps)(step),
+    None,
+    (jnp.arange(nsamps), samples)
+)
+extras['samples'] = samples
+h5ify.save(f'{outdir}/posterior.h5', extras, mode='w')

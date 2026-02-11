@@ -11,6 +11,26 @@ from bilby.gw.prior import UniformSourceFrame
 
 import h5ify
 
+sec_to_yr = 1 / 60 / 60 / 24 / 365
+
+# pulled from Reed's example code for querying O4a only, excluding ER15
+o4a_start = 1368975618
+o4a_end = 1389455118
+
+# o1, o2, o3 times pulled from:
+# https://gwosc.org/O1/
+# https://gwosc.org/O2/
+# https://gwosc.org/O3/O3a
+# https://gwosc.org/O3/O3b
+o1_start = 1126051217
+o1_end = 1137254417
+
+o2_start = 1164556817
+o2_end = 1187733618
+
+o3_start = 1238166018
+o3_end = 1269363618
+
 default_pars = [
     'mass_1_source',
     'mass_ratio',
@@ -122,6 +142,7 @@ def get_posteriors(
         snrs = data['snrs']
         fars = data['fars']
         cats = data['catalogs']
+        cats = list(map(str, np.array(cats).astype(str)))
 
         return posteriors, events, snrs, fars, cats
 
@@ -254,6 +275,7 @@ def get_injections(
         s2y = d['spin2y'][found]
         s2z = d['spin2z'][found]
         z = d['redshift'][found]
+        tc = d['time_geocenter'][found]
 
     a1 = (s1x**2 + s1y**2 + s1z**2)**0.5
     a2 = (s2x**2 + s2y**2 + s2z**2)**0.5
@@ -269,10 +291,14 @@ def get_injections(
     injections['cos_tilt_2'] = c2
     injections['redshift'] = z
     injections['chirp_mass'] = (m1 * m2) ** (3/5) / (m1 + m2) ** (1/5)
+    injections['geocent_time'] = tc
     injections['snr'] = snr[found]
     injections['far'] = far[found]
 
-    injections = {par: injections[par] for par in par  + ['snr', 'far']}
+    injections = {
+        par: injections[par]
+        for par in pars + ['snr', 'far', 'geocent_time']
+    }
 
     injections['prior'] = prior * 4 * np.pi**2 * a1**2 * a2**2
     if 'mass_ratio' in pars:
@@ -297,3 +323,52 @@ def get_injections(
         injections[k] = xp.array(injections[k]).squeeze()
 
     return injections
+
+
+def cut_data(event_data, injections, snr_thresh=10, far_thresh=1):
+    posteriors = event_data[0]
+
+    found = []
+    events = []
+    for event, snr, far, catalog in zip(*event_data[1:]):
+        fi = ('GWTC-1' in catalog) & (snr >= snr_thresh)
+        fi |= ('GWTC-1' not in catalog) & (far <= far_thresh)
+        found.append(fi)
+        if fi:
+            events.append(event)
+    found = np.array(found)
+
+    posts = {k : v[found] for k, v in posteriors.items()}
+
+    found = (injections['geocent_time'] < o3_start) & (injections['snr'] >= snr_thresh)
+    found |= (injections['geocent_time'] >= o3_start) & (injections['far'] <= far_thresh)
+    injs = {
+        k : v[found]
+        for k, v in injections.items()
+        if k not in ['time', 'total']
+    }
+    injs['total'] = injections['total']
+    injs['time'] = injections['time']
+
+    return events, posts, injs
+
+
+def get_data(snr_thresh=10, far_thresh=1):
+    event_data = get_posteriors(load=True)
+    injections = get_injections(load=True)
+    events, posteriors, injections = cut_data(
+        event_data,
+        injections,
+        snr_thresh=snr_thresh,
+        far_thresh=far_thresh
+    )
+
+    posteriors['mass_1'] = posteriors.pop('mass_1_source')
+
+    injections['mass_1'] = injections.pop('mass_1_source')
+    injections['total_generated'] = injections.pop('total')
+
+    posteriors['log_prior'] = np.log(posteriors['prior'])
+    injections['log_prior'] = np.log(injections['prior'])
+
+    return events, posteriors, injections
