@@ -253,7 +253,6 @@ if __name__ == '__main__':
         thinning=thinning,
         max_tree_depth=max_tree_depth,
         target_accept_prob=target_accept_prob,
-        N_eff=True
     )
     samp.sample()
     samp.samples.to_csv(f'{outdir}/run.csv')
