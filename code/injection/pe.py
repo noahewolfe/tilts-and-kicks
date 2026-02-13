@@ -194,6 +194,21 @@ def digest_args(args):
     for k, v in injection_parameters.items():
         injection_parameters[k] = np.asarray(v).item()
 
+    if 'redshift' in injection_parameters:
+        opz = 1 + injection_parameters['redshift']
+
+        if 'mass_1_source' in injection_parameters:
+            assert (
+                opz * injection_parameters['mass_1_source']
+                == injection_parameters['mass_1']
+            )
+
+        if 'mass_2_source' in injection_parameters:
+            assert (
+                opz * injection_parameters['mass_2_source']
+                == injection_parameters['mass_2']
+            )
+
     true_m1 = injection_parameters.pop('mass_1')
     true_m2 = injection_parameters.pop('mass_2')
 

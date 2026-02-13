@@ -113,8 +113,6 @@ def get_data(outdir, key, nobs, path, cut=11):
     print('ndet =', ndet)
     print('ndet / ntot =', ndet / detectable['total_generated'])
 
-    detectable['mass_1'] = detectable.pop('mass_1_source')
-
     idxs = jax.random.choice(
         key,
         ndet,
@@ -136,6 +134,9 @@ def get_data(outdir, key, nobs, path, cut=11):
             assert np.all(v == p[k])        
     else:
         h5ify.save(f'{outdir}/posteriors.h5', posteriors)
+
+    detectable['mass_1'] = detectable.pop('mass_1_source')
+
 
     return posteriors, detectable
 
