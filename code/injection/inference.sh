@@ -1,5 +1,13 @@
+#!/bin/sh
+  
+#SBATCH --job-name=test
+#SBATCH -p iaifi_gpu 
+#SBATCH --gres=gpu:1
+#SBATCH -c 1
+#SBATCH --mem=25GB
+#SBATCH -t 01-00:00
+
 export JAX_ENABLE_X64=True
-export JAX_PLATFORM_NAME="cpu"
 
 python -u inference.py \
     --outdir ../../data/inference/injection/test \
