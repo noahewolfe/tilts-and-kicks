@@ -415,3 +415,27 @@ def save_key(path, key):
     from jax.random import key_data
     from jax.numpy import save
     save(path, key_data(key))
+
+
+def primary_mass_to_chirp_mass_jacobian(samples):
+    r"""
+    Compute the Jacobian for the primary mass to chirp mass transformation.
+
+    .. math::
+
+        \frac{d m_c}{d m_1} = \frac{q^{3/5}}{(1 + q)^{1/5}}
+
+    taken from: https://git.ligo.org/RatesAndPopulations/gwpopulation_pipe/-/blob/master/gwpopulation_pipe/data_collection.py?ref_type=heads
+
+    Parameters
+    ----------
+    samples: dict
+        Samples containing `mass_1` and `mass_ratio`.
+
+    Returns
+    -------
+    jacobian: array_like
+        The Jacobian for the transformation.
+    """
+    return (1 + samples["mass_ratio"]) ** 0.2 / samples["mass_ratio"] ** 0.6
+
