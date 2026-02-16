@@ -58,6 +58,7 @@ parameter_keys = [
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--outdir', type=str, required=True)
+parser.add_argument('--chain', type=int, default=-1)
 parser.add_argument('--npool', type=int, required=True)
 parser.add_argument('--prior-path', type=str, required=True)
 parser.add_argument(
@@ -113,11 +114,14 @@ def get_mchirp_width(mchirp, user_width=None):
     return float(user_width)
 
 
-def get_label(outdir: str, prefix: str = "chain", ext: str = ".hdf5") -> str:
+def get_label(outdir: str, label=None, prefix: str = "chain", ext: str = ".hdf5") -> str:
     """
     Return the next available chain file path in outdir:
       chain0.hdf5, chain1.hdf5, chain2.hdf5, ...
     """
+    if label is not None:
+        return label
+
     outdir = os.path.abspath(outdir)
     i = 0
     while True:
@@ -137,7 +141,12 @@ def digest_args(args):
     overwrite = args.overwrite
     reweight = args.reweight
 
-    label = get_label(outdir)
+    # TODO: kinda sloppy
+    label = None
+    if args.chain >= 0:
+        label = f'chain{args.chain}'
+    label = get_label(outdir, label=label)
+
     res_path = f'{outdir}/{label}.hdf5'
 
     if os.path.isfile(res_path):
@@ -816,9 +825,12 @@ if __name__ == '__main__':
         **likelihood_kwargs
     )
 
-    seed = np.random.randint(low=1, high=1e17, dtype=np.int64)
-    with open(f'{outdir}/{label}_sample_seed.txt', 'w') as f:
-        f.write(str(seed))
+    if not os.path.isfile(f'{outdir}/{label}_resume.pickle'):
+        seed = np.random.randint(low=1, high=1e17, dtype=np.int64)
+        with open(f'{outdir}/{label}_sample_seed.txt', 'w') as f:
+            f.write(str(seed))
+    else:
+        seed = None
 
     result = bilby.run_sampler(
         likelihood=likelihood,
