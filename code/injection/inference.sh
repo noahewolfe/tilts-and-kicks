@@ -1,22 +1,28 @@
 #!/bin/sh
   
 #SBATCH --job-name=test
-#SBATCH -p iaifi_gpu 
+#SBATCH -p iaifi_gpu_requeue 
 #SBATCH --gres=gpu:1
 #SBATCH -c 1
 #SBATCH --mem=25GB
 #SBATCH -t 00-03:00
 
+set -euox pipefail
+
 export JAX_ENABLE_X64=True
 
-seed=42
+seed=43
 outdir="../../data/inference/injection/tests"
-outdir="${outdir}/260207/seed${seed}"
+outdir="${outdir}/260207/deltas-260213-correct-cut"
 
-python -u inference.py \
+mkdir -p $outdir
+
+/n/home03/newolfe/.conda/envs/just-for-kicks/bin/python -u inference.py \
     --outdir $outdir \
-    --posteriors ../../data/pe/tests/260207/posteriors.hdf5 \
+    --posteriors ../../data/vt/tests/260207/cat.h5 \
     --injections ../../data/vt/tests/260213/detectable.hdf5 \
     --truths ./parameters/astro-o4a-strong-maxl-sigma-spin-1e-2-xi-0p3.json \
     --seed $seed \
+    --maximum-variance 5 \
+    --nobs 350 \
     > $outdir/log.out 2> $outdir/log.err

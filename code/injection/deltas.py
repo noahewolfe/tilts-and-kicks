@@ -131,12 +131,11 @@ def get_data(outdir, key, nobs, path, cut=11):
     if os.path.isfile(f'{outdir}/posteriors.h5'):
         p = h5ify.load(f'{outdir}/posteriors.h5')
         for k, v in posteriors.items():
-            assert np.all(v == p[k])        
+            assert np.all(v == p[k])
     else:
         h5ify.save(f'{outdir}/posteriors.h5', posteriors)
 
     detectable['mass_1'] = detectable.pop('mass_1_source')
-
 
     return posteriors, detectable
 

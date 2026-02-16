@@ -14,7 +14,7 @@ lam_1 = DirichletElement(order=1, n_dimensions=3, label='lam_')
 beta = Uniform(minimum=-2, maximum=7)
 
 #lamb = Uniform(minimum=-10, maximum=10)
-lamb = Uniform(minimum=-8, maximum=8)
+lamb = Uniform(minimum=2, maximum=6)
 
 mu_chi = Uniform(minimum=0, maximum=1)
 sigma_chi = Uniform(minimum=0.005, maximum=1)

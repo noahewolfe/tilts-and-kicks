@@ -32,15 +32,15 @@ from models import log_iid_spin_mag_truncnorm
 from models import log_nid_iso_gauss_tilt
 from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
 
-nobs = 70  #350
-maximum_variance = 10
-
 parser = ArgumentParser()
 parser.add_argument('--outdir', type=str)
 parser.add_argument('--posteriors', type=str, help='path to posteriors')
 parser.add_argument('--injections', type=str, help='path to vt file')
 parser.add_argument('--truths', help='path to json file with true parameters')
 parser.add_argument('--seed', default=42, type=int)
+parser.add_argument('--nobs', default=70, type=int)
+parser.add_argument('--maximum-variance', default=5, type=int)
+parser.add_argument('--deltas', action='store_true')
 
 
 def parse_args():
@@ -51,7 +51,16 @@ def parse_args():
     with open(args.truths, 'r') as f:
         truths = json.loads(f.read())
         truths = {k : np.asarray(v).item() for k, v in truths.items()}
-    return outdir, args.injections, args.posteriors, truths, args.seed
+    return (
+        outdir,
+        args.injections,
+        args.posteriors,
+        truths,
+        args.seed,
+        args.nobs,
+        args.maximum_variance,
+        args.deltas
+    )
 
 
 def log_model(dataset, parameters):
@@ -97,14 +106,33 @@ def log_model(dataset, parameters):
     return log_p_m1 + log_p_q + log_p_z + log_p_chi + log_p_tau
 
 
-def get_posteriors(key, outdir, path):
-    data = h5ify.load(path)
-    posteriors = list(data.values())
-    for p in posteriors:
-        p.pop('attrs')
-    posteriors = resample_and_reshape_posteriors(posteriors)
-    posteriors['log_prior'] = np.log(posteriors.pop('prior'))
-    
+def get_posteriors(key, outdir, path, nobs, deltas=False):
+
+    if deltas:
+        posteriors = h5ify.load(path)
+        if 'mass_1_source' in posteriors:
+            posteriors['mass_1'] = posteriors.pop('mass_1_source')
+        posteriors = {
+            k : posteriors[k].reshape(-1, 1)
+            for k in [
+                'mass_1',
+                'mass_ratio',
+                'redshift',
+                'a_1',
+                'a_2',
+                'cos_tilt_1',
+                'cos_tilt_2',
+                'log_prior'
+            ]
+        }
+    else:
+        data = h5ify.load(path)
+        posteriors = list(data.values())
+        for p in posteriors:
+            p.pop('attrs')
+        posteriors = resample_and_reshape_posteriors(posteriors)
+        posteriors['log_prior'] = np.log(posteriors.pop('prior'))
+
     idxs = jax.random.choice(
         key,
         len(posteriors['log_prior']),
@@ -114,40 +142,54 @@ def get_posteriors(key, outdir, path):
     idxs = jnp.sort(idxs)
 
     np.save(f'{outdir}/idxs.npy', idxs)
-    
+
     posteriors = {k : v[idxs] for k, v in posteriors.items()}
 
-    h5ify.save(f'{outdir}/posteriors.h5', posteriors)
+    h5ify.save(f'{outdir}/posteriors.h5', posteriors, mode='w')
 
     return posteriors
 
 
-def get_injections(path):
+def get_injections(path, cut=15):
     injections = h5ify.load(path)
     injections['mass_1'] = injections.pop('mass_1_source')
+    print(f'applying an snr cut of {cut}')
+    mask = injections['network_matched_filter_snr'] > cut
+    for k in list(injections.keys()):
+        if k not in ['attrs', 'total_generated', 'model', 'parameters']:
+            injections[k] = injections[k][mask]
     return injections
 
 
-def taper(v):
+def taper(maximum_variance, v):
     """ its actually a hard cut! """
     return jnp.nan_to_num(-1e10 * (v >= maximum_variance), nan=0)
 
 
 if __name__ == '__main__':
-    outdir, injections, posteriors, truths, seed = parse_args()
+    (
+        outdir,
+        injections,
+        posteriors,
+        truths,
+        seed,
+        nobs,
+        maximum_variance,
+        deltas
+    ) = parse_args()
     truths['log_sigma_spin'] = np.log(truths.pop('sigma_spin')).item()
     truths['log_mu_spin'] = np.log(truths.pop('mu_spin')).item()
 
     injections = get_injections(injections)
 
     key = jax.random.key(seed)
-    posteriors = get_posteriors(key, outdir, posteriors)
+    posteriors = get_posteriors(key, outdir, posteriors, nobs, deltas=deltas)
 
     likelihood = get_bilby_likelihood(
         log_model,
         posteriors,
         injections,
-        taper=taper,
+        taper=lambda v: taper(maximum_variance, v),
         rate=False
     )
 
@@ -171,7 +213,7 @@ if __name__ == '__main__':
         likelihood=likelihood,
         priors=priors,
         outdir=outdir,
-        label=f'run',
+        label='run',
         sampler='dynesty',
         sample='acceptance-walk',
         naccept=5,
@@ -194,4 +236,9 @@ if __name__ == '__main__':
     h5ify.save(f'{outdir}/extras.h5', posterior, mode='w')
 
     result.posterior['variance'] = posterior['variance']
+
+    for k in list(truths.keys()):
+        if k not in result.posterior:
+            truths.pop(k)
+
     result.plot_corner(truths=truths)
