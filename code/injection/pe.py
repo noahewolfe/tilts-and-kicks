@@ -82,7 +82,7 @@ parser.add_argument('--prior-lowest-allowed-mchirp', type=float, default=3)
 parser.add_argument('--outdir-extras', type=str, default='')
 
 parser.add_argument('--reweight', action='store_true')
-parser.add_argument('--injection-waveform', default='xphm')
+parser.add_argument('--injection-waveform', default='xp')
 parser.add_argument('--recovery-waveform', default='xp')
 
 parser.add_argument('--overwrite', action='store_true')
@@ -113,6 +113,21 @@ def get_mchirp_width(mchirp, user_width=None):
     return float(user_width)
 
 
+def get_label(outdir: str, prefix: str = "chain", ext: str = ".hdf5") -> str:
+    """
+    Return the next available chain file path in outdir:
+      chain0.hdf5, chain1.hdf5, chain2.hdf5, ...
+    """
+    outdir = os.path.abspath(outdir)
+    i = 0
+    while True:
+        label = f'{prefix}{i}'
+        path = os.path.join(outdir, f'{label}{ext}')
+        if not os.path.exists(path):
+            return label
+        i += 1
+
+
 def digest_args(args):
     outdir = args.outdir
     os.makedirs(outdir, exist_ok=True)
@@ -122,23 +137,18 @@ def digest_args(args):
     overwrite = args.overwrite
     reweight = args.reweight
 
-    paths = [
-        f'{outdir}/dynesty_result.json', f'{outdir}/dynesty_result.hdf5'
-    ]
+    label = get_label(outdir)
+    res_path = f'{outdir}/{label}.hdf5'
 
-    if not overwrite or reweight:
-        found = False
-        for res_path in paths:
-            if os.path.isfile(res_path):
-                found = True
-                print(f'result file already exists at {res_path}')
+    if os.path.isfile(res_path):
+        print(f'result file already exists at {res_path}')
 
-        if not overwrite and found:
+        if not overwrite:
             print('pe already done')
             print('done.')
             raise SystemExit(0)
 
-        if reweight and not found:
+        if reweight:
             print('nothing to reweight')
             print('done.')
             raise SystemExit(0)
@@ -353,6 +363,7 @@ def digest_args(args):
 
     return (
         outdir,
+        label,
         npool,
         catalog_path,
         event_index,
@@ -440,7 +451,7 @@ def combine(outdir, exclude=None, append=False):
     # TODO: save the actual bilby prior dict
     from wcosmo.wcosmo import dDLdz
     from astropy.cosmology import Planck15
-    from gwpopulation_pipe.data_collection import (
+    from util import (
         primary_mass_to_chirp_mass_jacobian
     )
 
@@ -457,12 +468,12 @@ def combine(outdir, exclude=None, append=False):
         )
     ]
     for i, d in enumerate(dirs):
-        if not os.path.isfile(f'{d}/dynesty_result.json'):
+        if not os.path.isfile(f'{d}/dynesty_result.hdf5'):
             exclude.add(i)
             print(f'no result found in {d}')
 
     def load(i):
-        result = read_in_result(f'{dirs[i]}/dynesty_result.json')
+        result = read_in_result(f'{dirs[i]}/dynesty_result.hdf5')
         posterior = result.posterior
         injection_parameters = result.injection_parameters
 
@@ -481,12 +492,17 @@ def combine(outdir, exclude=None, append=False):
         true_mf_net_snr = np.sqrt(true_mf_net_snr)
         injection_parameters['network_matched_filter_snr'] = true_mf_net_snr
 
-        injection_parameters.pop('reference_frequency', None)
-        injection_parameters.pop('waveform_approximant', None)
-
         prior_dict = str(
             BBHPriorDict(f'{dirs[i]}/dynesty.prior')._get_json_dict()
         )
+
+        for k in [
+            'waveform_approximant',
+            'reference_frequency',
+            'minimum_frequency'
+        ]:
+            posterior.pop(k)
+            injection_parameters.pop(k, None)
 
         return prior_dict, injection_parameters, posterior
 
@@ -584,6 +600,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     (
         outdir,
+        label,
         npool,
         catalog_path,
         event_index,
@@ -655,7 +672,7 @@ if __name__ == '__main__':
             start_time=start_time
         )
 
-        with open(f'{outdir}/seed.txt', 'w') as f:
+        with open(f'{outdir}/noise_seed.txt', 'w') as f:
             f.write(str(noise_seed))
     else:
         ifos.set_strain_data_from_zero_noise(
@@ -669,6 +686,9 @@ if __name__ == '__main__':
             f'{outdir}/{ifo.name}-noise.npy',
             ifo.whitened_frequency_domain_strain,
         )
+
+    print('INJECTING WITH PARAMETERS:')
+    print(injection_parameters)
 
     waveform_polarizations = ifos.inject_signal(
         waveform_generator=injection_waveform_generator,
@@ -796,6 +816,10 @@ if __name__ == '__main__':
         **likelihood_kwargs
     )
 
+    seed = np.random.randint(low=1, high=1e17, dtype=np.int64)
+    with open(f'{outdir}/{label}_sample_seed.txt', 'w') as f:
+        f.write(str(seed))
+
     result = bilby.run_sampler(
         likelihood=likelihood,
         priors=priors,
@@ -803,12 +827,13 @@ if __name__ == '__main__':
         nlive=nlive,
         injection_parameters=injection_parameters,
         outdir=outdir,
-        label='dynesty',
+        label=label,
         conversion_function=bilby.gw.conversion.generate_all_bbh_parameters,
         npool=npool,
         maxmcmc=50_000,
         resume=True,
-        save='hdf5'
+        save='hdf5',
+        seed=seed
     )
 
     print('pe done.')
