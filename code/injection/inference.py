@@ -31,6 +31,7 @@ from models import log_powerlaw_redshift
 from models import log_iid_spin_mag_truncnorm
 from models import log_nid_iso_gauss_tilt
 from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
+from models import log_marg_iso_gauss_spin_tilt
 
 parser = ArgumentParser()
 parser.add_argument('--outdir', type=str)
@@ -99,15 +100,14 @@ def log_model(dataset, parameters):
 
     log_p_chi = log_iid_spin_mag_truncnorm(dataset, parameters)
 
-    parameters['sigma_spin'] = jnp.exp(parameters['log_sigma_spin'])
-    parameters['mu_spin'] = jnp.exp(parameters['log_mu_spin'])
+    if 'log_sigma_spin' in parameters:
+        parameters['sigma_spin'] = jnp.exp(parameters['log_sigma_spin'])
     log_p_tau = log_nid_iso_gauss_tilt(dataset, parameters)
 
     return log_p_m1 + log_p_q + log_p_z + log_p_chi + log_p_tau
 
 
 def get_posteriors(key, outdir, path, nobs, deltas=False):
-
     if deltas:
         posteriors = h5ify.load(path)
         if 'mass_1_source' in posteriors:
@@ -166,6 +166,11 @@ def taper(maximum_variance, v):
     return jnp.nan_to_num(-1e10 * (v >= maximum_variance), nan=0)
 
 
+# TODO:
+def plot_ppds():
+    """ calculate, plot, and save ppds in m1, q (marg over m1), a1, a2, ct1, ct2 """
+
+
 if __name__ == '__main__':
     (
         outdir,
@@ -177,8 +182,10 @@ if __name__ == '__main__':
         maximum_variance,
         deltas
     ) = parse_args()
-    truths['log_sigma_spin'] = np.log(truths.pop('sigma_spin')).item()
-    truths['log_mu_spin'] = np.log(truths.pop('mu_spin')).item()
+
+    priors = ConditionalPriorDict('./priors/lvk.prior')
+    if 'log_sigma_spin' in priors:
+        truths['log_sigma_spin'] = np.log(truths.pop('sigma_spin')).item()
 
     injections = get_injections(injections)
 
@@ -195,19 +202,6 @@ if __name__ == '__main__':
 
     print('lnl at truths: ', likelihood.log_likelihood(parameters=truths))
     print('extras at truths: ', likelihood.generate_extra_statistics(truths))
-
-    priors = ConditionalPriorDict('./priors/lvk-lnsigma.prior')
-
-    # tight prior or we run into variance issues
-    priors['log_sigma_spin'].minimum = np.log(1e-2 * 0.5).item()
-    priors['log_sigma_spin'].maximum = np.log(1e-2 * 1.5).item()
-
-    # tight prior here as well, for testing
-    priors.pop('mu_spin')
-    priors['log_mu_spin'] = Uniform(
-        minimum=np.log(0.9).item(),
-        maximum=0.0
-    )
 
     result = run_sampler(
         likelihood=likelihood,
@@ -240,5 +234,6 @@ if __name__ == '__main__':
     for k in list(truths.keys()):
         if k not in result.posterior:
             truths.pop(k)
+    truths['variance'] = 0
 
     result.plot_corner(truths=truths)

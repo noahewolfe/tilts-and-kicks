@@ -12,9 +12,9 @@ set -euox pipefail
 export JAX_ENABLE_X64=True
 
 nobs=70
-seed=43
+seed=1703
 outdir="../../data/inference/injection/tests"
-outdir="${outdir}/260207/nobs${nobs}-seed${seed}"
+outdir="${outdir}/260207/nobs${nobs}-seed${seed}-ulin"
 
 mkdir -p $outdir
 
@@ -25,6 +25,5 @@ mkdir -p $outdir
     --truths ./parameters/astro-o4a-strong-maxl-sigma-spin-1e-2-xi-0p3.json \
     --seed $seed \
     --maximum-variance 10 \
-    --nobs 70 \
-    --deltas \
+    --nobs $nobs \
     > $outdir/log.out 2> $outdir/log.err
