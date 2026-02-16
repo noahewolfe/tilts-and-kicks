@@ -11,18 +11,20 @@ set -euox pipefail
 
 export JAX_ENABLE_X64=True
 
+nobs=70
 seed=43
 outdir="../../data/inference/injection/tests"
-outdir="${outdir}/260207/deltas-260213-correct-cut"
+outdir="${outdir}/260207/nobs${nobs}-seed${seed}"
 
 mkdir -p $outdir
 
 /n/home03/newolfe/.conda/envs/just-for-kicks/bin/python -u inference.py \
     --outdir $outdir \
-    --posteriors ../../data/vt/tests/260207/cat.h5 \
+    --posteriors ../../data/pe/tests/260207/posteriors.hdf5 \
     --injections ../../data/vt/tests/260213/detectable.hdf5 \
     --truths ./parameters/astro-o4a-strong-maxl-sigma-spin-1e-2-xi-0p3.json \
     --seed $seed \
-    --maximum-variance 5 \
-    --nobs 350 \
+    --maximum-variance 10 \
+    --nobs 70 \
+    --deltas \
     > $outdir/log.out 2> $outdir/log.err
