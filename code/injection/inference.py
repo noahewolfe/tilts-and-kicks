@@ -97,14 +97,28 @@ def log_model(dataset, parameters):
     return log_p_m1 + log_p_q + log_p_z + log_p_chi + log_p_tau
 
 
-def get_posteriors(path):
+def get_posteriors(key, outdir, path):
     data = h5ify.load(path)
     posteriors = list(data.values())
     for p in posteriors:
         p.pop('attrs')
     posteriors = resample_and_reshape_posteriors(posteriors)
     posteriors['log_prior'] = np.log(posteriors.pop('prior'))
-    posteriors = {k : v[:nobs, :] for k, v in posteriors.items()}
+    
+    idxs = jax.random.choice(
+        key,
+        len(posteriors['log_prior']),
+        shape=(nobs,),
+        replace=False
+    )
+    idxs = jnp.sort(idxs)
+
+    np.save(f'{outdir}/idxs.npy', idxs)
+    
+    posteriors = {k : v[idxs] for k, v in posteriors.items()}
+
+    h5ify.save(f'{outdir}/posteriors.h5', posteriors)
+
     return posteriors
 
 
@@ -125,7 +139,9 @@ if __name__ == '__main__':
     truths['log_mu_spin'] = np.log(truths.pop('mu_spin')).item()
 
     injections = get_injections(injections)
-    posteriors = get_posteriors(posteriors)
+
+    key = jax.random.key(seed)
+    posteriors = get_posteriors(key, outdir, posteriors)
 
     likelihood = get_bilby_likelihood(
         log_model,
@@ -155,7 +171,7 @@ if __name__ == '__main__':
         likelihood=likelihood,
         priors=priors,
         outdir=outdir,
-        label='test',
+        label=f'run',
         sampler='dynesty',
         sample='acceptance-walk',
         naccept=5,
