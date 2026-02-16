@@ -5,6 +5,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 import h5ify
 import numpy as np
+import matplotlib.pyplot as plt
 
 import jax
 jax.config.update('jax_enable_x64', True)
@@ -22,6 +23,7 @@ from bilby.core.prior import Uniform
 from bilby.core.prior import ConditionalPriorDict
 
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+from pixelpop.models.gwpop_models import trunc_gaussian
 
 from data import resample_and_reshape_posteriors
 
@@ -49,6 +51,8 @@ def parse_args():
     args = parser.parse_args()
     outdir = args.outdir
     os.makedirs(outdir, exist_ok=True)
+    os.makedirs(f'{outdir}/ppds', exist_ok=True)
+
     with open(args.truths, 'r') as f:
         truths = json.loads(f.read())
         truths = {k : np.asarray(v).item() for k, v in truths.items()}
@@ -166,9 +170,150 @@ def taper(maximum_variance, v):
     return jnp.nan_to_num(-1e10 * (v >= maximum_variance), nan=0)
 
 
-# TODO:
-def plot_ppds():
-    """ calculate, plot, and save ppds in m1, q (marg over m1), a1, a2, ct1, ct2 """
+def make_ppds(outdir, truths, posterior):
+    """ calculate and plot in m1, q (marg over m1), a1, a2, ct1, ct2 """
+    mmin, mmax = 3.0, 300.0
+    m1_grid = jnp.linspace(mmin, mmax, 1000)
+
+    m1_grid_for_q = jnp.linspace(mmin, mmax, 500)
+    q_grid = jnp.linspace(0.1, 1.0, 500)
+    mm, qq = jnp.meshgrid(m1_grid_for_q, q_grid, indexing='ij')
+
+    a_grid = jnp.linspace(0.0, 1.0, 500)
+    ct_grid = jnp.linspace(-1.0, 1.0, 500)
+
+    def ppd_for_sample(parameters):
+        lam_2 = 1 - parameters['lam_0'] - parameters['lam_1']
+
+        log_p_m1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+            dict(mass_1=m1_grid),
+            alpha_1=parameters['alpha_1'],
+            alpha_2=parameters['alpha_2'],
+            mlow_1=parameters['mlow_1'],
+            break_mass=parameters['break_mass'],
+            delta_m_1=parameters['delta_m_1'],
+            lam_fractions=(parameters['lam_0'], parameters['lam_1'], lam_2),
+            mpp_1=parameters['mpp_1'],
+            sigpp_1=parameters['sigpp_1'],
+            mpp_2=parameters['mpp_2'],
+            sigpp_2=parameters['sigpp_2'],
+            mmax=300.0,
+            gaussian_mass_maximum=100.0
+        )
+        p_m1 = jnp.exp(log_p_m1)
+
+        log_p_m1_for_q = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+            dict(mass_1=mm),
+            alpha_1=parameters['alpha_1'],
+            alpha_2=parameters['alpha_2'],
+            mlow_1=parameters['mlow_1'],
+            break_mass=parameters['break_mass'],
+            delta_m_1=parameters['delta_m_1'],
+            lam_fractions=(parameters['lam_0'], parameters['lam_1'], lam_2),
+            mpp_1=parameters['mpp_1'],
+            sigpp_1=parameters['sigpp_1'],
+            mpp_2=parameters['mpp_2'],
+            sigpp_2=parameters['sigpp_2'],
+            mmax=300.0,
+            gaussian_mass_maximum=100.0
+        )
+        log_p_q_given_m1 = PowerlawPlusPeak_MassRatio(
+            dict(mass_1=mm, mass_ratio=qq),
+            slope=parameters['beta'],
+            minimum=parameters['mlow_1'],
+            delta_m=parameters['delta_m_1']
+        )
+        p_q = jnp.trapezoid(
+            y=jnp.exp(log_p_q_given_m1 + log_p_m1_for_q),
+            x=m1_grid_for_q,
+            axis=0
+        )
+
+        if 'sigma_spin' in parameters:
+            sigma_spin = parameters['sigma_spin']
+        else:
+            sigma_spin = jnp.exp(parameters['log_sigma_spin'])
+
+        log_p_a = trunc_gaussian(
+            a_grid,
+            parameters['mu_chi'],
+            parameters['sigma_chi'],
+            lower=0,
+            upper=1
+        )
+        p_a = jnp.exp(log_p_a)
+
+        log_p_ct = log_marg_iso_gauss_spin_tilt(
+            ct_grid,
+            parameters['xi_spin'],
+            sigma_spin,
+            mu_spin=parameters['mu_spin']
+        )
+        p_ct = jnp.exp(log_p_ct)
+
+        return dict(
+            mass_1=p_m1,
+            mass_ratio=p_q,
+            a_1=p_a,
+            a_2=p_a,
+            cos_tilt_1=p_ct,
+            cos_tilt_2=p_ct
+        )
+
+    n = len(next(iter(posterior.values())))
+
+    @scan_tqdm(n)
+    def step(carry, d):
+        _, x = d
+        return carry, ppd_for_sample(x)
+
+    _, ppds = jax.lax.scan(step, None, (jnp.arange(n), posterior))
+
+    xs = dict(
+        mass_1=np.array(m1_grid),
+        mass_ratio=np.array(q_grid),
+        a_1=np.array(a_grid),
+        a_2=np.array(a_grid),
+        cos_tilt_1=np.array(ct_grid),
+        cos_tilt_2=np.array(ct_grid)
+    )
+    ppds = {k: np.array(v) for k, v in ppds.items()}
+    medians = {k: np.median(v, axis=0) for k, v in ppds.items()}
+    q05 = {k : np.quantile(v, 0.05, axis=0) for k, v in ppds.items()}
+    q95 = {k : np.quantile(v, 0.95, axis=0) for k, v in ppds.items()} 
+
+    data = dict(xs=xs, ppd=ppds, medians=medians, q05=q05, q95=q95)
+    h5ify.save(f'{outdir}/ppds.h5', data, mode='w')
+
+    p_true = ppd_for_sample(truths)
+
+    plot_order = [
+        ('mass_1', r'$m_1$'),
+        ('mass_ratio', r'$q$'),
+        ('a_1', r'$a_1$'),
+        ('a_2', r'$a_2$'),
+        ('cos_tilt_1', r'$\cos\theta_1$'),
+        ('cos_tilt_2', r'$\cos\theta_2$')
+    ]
+    for (k, label) in plot_order:
+        fig, ax = plt.subplots()
+
+        ax.plot(xs[k], p_true[k], lw=1.7, color='black', linestyle='--')
+        ax.fill_between(xs[k], q05[k], q95[k], alpha=0.25)
+        ax.plot(xs[k], medians[k], lw=1.7)
+        ax.set_xlabel(label)
+        ax.set_ylabel('density')
+
+        if k == 'mass_1':
+            ax.loglog()
+            ax.set_ylim(1e-6, 5e0)
+        elif 'cos_tilt' in k:
+            ax.semilogy()
+            ax.set_ylim(2e-1, 3e1)
+
+        fig.tight_layout()
+        fig.savefig(f'{outdir}/ppds/{k}.png', dpi=200)
+        plt.close(fig)
 
 
 if __name__ == '__main__':
@@ -237,3 +382,4 @@ if __name__ == '__main__':
     truths['variance'] = 0
 
     result.plot_corner(truths=truths)
+    make_ppds(outdir, truths, posterior)

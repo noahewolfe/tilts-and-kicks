@@ -12,9 +12,9 @@ set -euox pipefail
 export JAX_ENABLE_X64=True
 
 nobs=70
-seed=1703
+seed=746570
 outdir="../../data/inference/injection/tests"
-outdir="${outdir}/260207/nobs${nobs}-seed${seed}-ulin"
+outdir="${outdir}/260207/nobs${nobs}-seed${seed}-ulin-broad"
 
 mkdir -p $outdir
 
