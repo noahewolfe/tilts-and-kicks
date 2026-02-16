@@ -255,6 +255,6 @@ if __name__ == '__main__':
         target_accept_prob=target_accept_prob,
     )
     samp.sample()
-    samp.samples.to_csv(f'{outdir}/run.csv')
+    samp.samples.to_csv(f'{outdir}/result.csv')
 
     print('done.')

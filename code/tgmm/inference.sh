@@ -2,12 +2,12 @@
 
 set -euox pipefail
 
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=3
 
-seed=1701
+seed=1706
 numsamples=1000
-numwarmup=10000
-thinning=10
+numwarmup=100000
+thinning=1
 label="o4a-mass-model"
 
 outdir="../../data/inference/tgmm"
@@ -20,4 +20,4 @@ python -u inference.py \
     --num-samples $numsamples \
     --num-warmup $numwarmup \
     --thinning $thinning \
-    #> "${outdir}/log.out" 2> "${outdir}/log.err"
+    > "${outdir}/log.out" 2> "${outdir}/log.err"
