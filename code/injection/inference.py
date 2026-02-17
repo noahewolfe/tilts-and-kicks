@@ -40,7 +40,10 @@ parser = ArgumentParser()
 parser.add_argument('--outdir', type=str)
 parser.add_argument('--posteriors', type=str, help='path to posteriors')
 parser.add_argument('--injections', type=str, help='path to vt file')
-parser.add_argument('--truths', help='path to json file with true parameters')
+parser.add_argument(
+    '--truths',
+    help='path to json file with true parameters or a histogram of injections'
+)
 parser.add_argument('--seed', default=42, type=int)
 parser.add_argument('--nobs', default=70, type=int)
 parser.add_argument('--maximum-variance', default=5, type=int)
@@ -54,19 +57,45 @@ def parse_args():
     os.makedirs(outdir, exist_ok=True)
     os.makedirs(f'{outdir}/ppds', exist_ok=True)
 
-    with open(args.truths, 'r') as f:
-        truths = json.loads(f.read())
-        truths = {k : np.asarray(v).item() for k, v in truths.items()}
     return (
         outdir,
         args.injections,
         args.posteriors,
-        truths,
+        args.truths,
         args.seed,
         args.nobs,
         args.maximum_variance,
         args.deltas
     )
+
+
+def load_astro_distribution(path):
+    """ load either the hyperparameters or draws from the astro. dist. """
+    kind = 'draws'
+    _, ext = os.path.splitext(path)
+    if ext == '.json':
+        with open(path, 'r') as f:
+            truths = json.loads(f.read())
+            truths = {k : np.asarray(v).item() for k, v in truths.items()}
+        kind = 'hyperparameters'
+    elif ext == '.dat' or ext in ['.h5', '.hdf5']:
+        from pandas import read_csv
+
+        if ext == '.dat':   # Salvo-style
+            truths = read_csv(path, header=0, sep='\t')
+            truths = {
+                k : np.array(v)
+                for k, v in truths.to_dict(orient='list').items()
+            }
+        elif ext in ['.h5', '.hdf5']:
+            truths = h5ify.load(path)
+
+        if 'mass_1_source' in truths:
+            truths['mass_1'] = truths.pop('mass_1_source')
+    else:
+        raise ValueError(f'Unknown extension {ext} on truths file')
+
+    return kind, truths
 
 
 def log_model(dataset, parameters):
@@ -163,7 +192,7 @@ def taper(maximum_variance, v):
     return jnp.nan_to_num(-1e10 * (v >= maximum_variance), nan=0)
 
 
-def make_ppds(outdir, truths, posterior):
+def make_ppds(outdir, truths, posterior, kind):
     """ calculate and plot in m1, q (marg over m1), a1, a2, ct1, ct2 """
     mmin, mmax = 3.0, 300.0
     m1_grid = jnp.linspace(mmin, mmax, 1000)
@@ -278,7 +307,8 @@ def make_ppds(outdir, truths, posterior):
     data = dict(xs=xs, ppd=ppds, medians=medians, q05=q05, q95=q95)
     h5ify.save(f'{outdir}/ppds.h5', data, mode='w')
 
-    p_true = ppd_for_sample(truths)
+    if kind == 'hyperparameters':
+        p_true = ppd_for_sample(truths)
 
     plot_order = [
         ('mass_1', r'$m_1$'),
@@ -291,7 +321,19 @@ def make_ppds(outdir, truths, posterior):
     for (k, label) in plot_order:
         fig, ax = plt.subplots()
 
-        ax.plot(xs[k], p_true[k], lw=1.7, color='black', linestyle='--')
+        if kind == 'hyperparameters':
+            ax.plot(xs[k], p_true[k], lw=1.7, color='black', linestyle='--')
+        else:
+            ax.hist(
+                truths[k],
+                histtype='step',
+                bins=50,
+                density=True,
+                lw=1.7,
+                color='black',
+                linestyle='--'
+            )
+
         ax.fill_between(xs[k], q05[k], q95[k], alpha=0.25)
         ax.plot(xs[k], medians[k], lw=1.7)
         ax.set_xlabel(label)
@@ -322,8 +364,7 @@ if __name__ == '__main__':
     ) = parse_args()
 
     priors = ConditionalPriorDict('./priors/lvk.prior')
-    if 'log_sigma_spin' in priors:
-        truths['log_sigma_spin'] = np.log(truths.pop('sigma_spin')).item()
+    kind, truths = load_astro_distribution(truths)
 
     injections = get_injections(injections)
 
@@ -338,8 +379,16 @@ if __name__ == '__main__':
         rate=False
     )
 
-    print('lnl at truths: ', likelihood.log_likelihood(parameters=truths))
-    print('extras at truths: ', likelihood.generate_extra_statistics(truths))
+    if kind == 'hyperparameters':
+        truths['variance'] = 0
+        if 'log_sigma_spin' in priors:
+            truths['log_sigma_spin'] = np.log(truths.pop('sigma_spin')).item()
+        print(
+            'lnl at truths: ', likelihood.log_likelihood(parameters=truths)
+        )
+        print(
+            'extras at truths: ', likelihood.generate_extra_statistics(truths)
+        )
 
     result = run_sampler(
         likelihood=likelihood,
@@ -369,10 +418,14 @@ if __name__ == '__main__':
 
     result.posterior['variance'] = posterior['variance']
 
-    for k in list(truths.keys()):
-        if k not in result.posterior:
-            truths.pop(k)
-    truths['variance'] = 0
+    if kind == 'hyperparameters':
+        for k in list(truths.keys()):
+            if k not in result.posterior:
+                truths.pop(k)
+        result.plot_corner(truths=truths)
+    else:
+        result.plot_corner()
 
-    result.plot_corner(truths=truths)
-    make_ppds(outdir, truths, posterior)
+    make_ppds(outdir, truths, posterior, kind)
+
+    print('done.')
