@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import pickle
 import argparse
@@ -681,6 +682,78 @@ def main(
         )
 
 
+def _handle_commit_mismatch(commit, allowed_commits, src_dir):
+    """
+    Allow multiple known commits. If a new commit appears, optionally prompt
+    to accept it and add it to allowed_commits.
+    """
+    if commit in allowed_commits:
+        return commit
+    else:
+   
+        if not sys.stdin.isatty():
+            raise AssertionError(
+                f"Commit mismatch in {src_dir}: "
+                f"{allowed_commits[0]!r} vs {commit!r} "
+                "(non-interactive; cannot prompt)"
+            )
+        resp = input(
+            f"\nCommit mismatch in {src_dir}\n"
+            f"  expected one of: {allowed_commits!r}\n"
+            f"  found:    {commit!r}\n"
+            "Is the found commit acceptable? [y/N]: "
+        ).strip().lower()
+
+        if resp in {"y", "yes"}:
+            return commit
+
+        raise AssertionError(
+            f"Commit mismatch rejected in {src_dir}: "
+            f"{allowed_commits[0]!r} vs {commit!r}"
+        )
+
+
+def _deep_diff(a, b, path=()):
+    """
+    Strict deep-diff for nested dict/list/tuple structures.
+    Returns a list of mismatches: (path_tuple, a_value, b_value, kind).
+
+    Note: attrs.commit is ignored here; it is validated separately by
+    _handle_commit_mismatch().
+    """
+    diffs = []
+
+    # allow attrs.commit to differ (handled separately above)
+    if path == ('attrs', 'commit'):
+        return diffs
+
+    if type(a) is not type(b):
+        diffs.append((path, a, b, "type"))
+        return diffs
+
+    if isinstance(a, dict):
+        a_keys, b_keys = set(a.keys()), set(b.keys())
+        for k in sorted(a_keys - b_keys):
+            diffs.append((path + (k,), a[k], "<MISSING>", "missing_in_b"))
+        for k in sorted(b_keys - a_keys):
+            diffs.append((path + (k,), "<MISSING>", b[k], "missing_in_a"))
+        for k in sorted(a_keys & b_keys):
+            diffs.extend(_deep_diff(a[k], b[k], path + (k,)))
+        return diffs
+
+    if isinstance(a, (list, tuple)):
+        if len(a) != len(b):
+            diffs.append((path + ("<len>",), len(a), len(b), "len"))
+        for i in range(min(len(a), len(b))):
+            diffs.extend(_deep_diff(a[i], b[i], path + (i,)))
+        return diffs
+
+    if a != b:
+        diffs.append((path, a, b, "value"))
+
+    return diffs
+
+
 def concat(outdir, load_all=False):
     outdir = os.path.abspath(outdir)
     dirs = sorted([
@@ -757,15 +830,30 @@ def concat(outdir, load_all=False):
             dirs[0], 'detectable'
         )
 
+        print('extras = ', extras)
+
+        allowed_commits = [extras['attrs']['commit']]
+
         for dir in tqdm(dirs[1:]):
-            try:
-                e, total, data = load(dir, 'detectable')
-                assert e == extras
-                total_generated += total
-                detectable = concat_dicts(detectable, data)
-            except AssertionError as err:
-                print(f'Assertion error {err} with {dir}')
-                continue
+            e, total, data = load(dir, 'detectable')
+
+            diffs = _deep_diff(extras, e)
+            if diffs:
+                print(
+                    f"\nFound {len(diffs)} mismatch(es) in extras vs {dir}. "
+                    "Showing up to 25:")
+                for p, av, bv, kind in diffs[:25]:
+                    print(f"  {kind:>12} at {p}: {av!r} vs {bv!r}")
+                raise AssertionError(f"{len(diffs)} mismatches (see log above)")
+
+            c = _handle_commit_mismatch(
+                e['attrs']['commit'], allowed_commits, dir
+            )
+            if c not in allowed_commits:
+                allowed_commits.append(c)
+
+            total_generated += total
+            detectable = concat_dicts(detectable, data)
 
         detectable['total_generated'] = total_generated
         for k, v in extras.items():

@@ -21,4 +21,4 @@ sigma_chi = Uniform(minimum=0.005, maximum=1)
 
 xi_spin = Uniform(minimum=0, maximum=1)
 mu_spin = Uniform(minimum=-1, maximum=1)
-log_sigma_spin = Uniform(minimum=-4, maximum=0.69)
+sigma_spin = Uniform(minimum=0.001, maximum=1)
