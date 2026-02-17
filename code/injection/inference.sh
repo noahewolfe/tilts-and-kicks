@@ -12,7 +12,7 @@ set -euox pipefail
 export JAX_ENABLE_X64=True
 
 nobs=150
-seed=1765
+seed=1764
 outdir="../../data/inference/injection"
 outdir="${outdir}/salvo-iso/nobs${nobs}-seed${seed}-ulin-broad"
 
@@ -22,8 +22,9 @@ mkdir -p $outdir
     --outdir $outdir \
     --posteriors ../../data/pe/salvo-iso/posteriors_from_ids1.pkl \
     --injections ../../data/vt/zenodo.17080422/injections.h5 \
-    --truths ./parameters/astro-o4a-strong-maxl-sigma-spin-1e-2-xi-0p3.json \
+    --truths ../../data/pe/salvo-iso/allinjs_list_O4.dat \
     --seed $seed \
     --maximum-variance 5 \
     --nobs $nobs \
+    --cut 11 \
     > $outdir/log.out 2> $outdir/log.err

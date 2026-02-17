@@ -46,6 +46,7 @@ parser.add_argument(
 )
 parser.add_argument('--seed', default=42, type=int)
 parser.add_argument('--nobs', default=70, type=int)
+parser.add_argument('--cut', default=15, type=int)
 parser.add_argument('--maximum-variance', default=5, type=int)
 parser.add_argument('--deltas', action='store_true')
 
@@ -59,6 +60,7 @@ def parse_args():
 
     return (
         outdir,
+        args.cut,
         args.injections,
         args.posteriors,
         args.truths,
@@ -92,6 +94,10 @@ def load_astro_distribution(path):
 
         if 'mass_1_source' in truths:
             truths['mass_1'] = truths.pop('mass_1_source')
+
+        for i in [1, 2]:
+            if f'tilt_{i}' in truths and f'cos_tilt_{i}' not in truths:
+                truths[f'cos_tilt_{i}'] = np.cos(truths.pop(f'tilt_{i}'))
     else:
         raise ValueError(f'Unknown extension {ext} on truths file')
 
@@ -334,8 +340,8 @@ def make_ppds(outdir, truths, posterior, kind):
                 linestyle='--'
             )
 
-        ax.fill_between(xs[k], q05[k], q95[k], alpha=0.25)
-        ax.plot(xs[k], medians[k], lw=1.7)
+        ax.fill_between(xs[k], q05[k], q95[k], alpha=0.25, color='C0')
+        ax.plot(xs[k], medians[k], lw=1.7, color='C0')
         ax.set_xlabel(label)
         ax.set_ylabel('density')
 
@@ -354,6 +360,7 @@ def make_ppds(outdir, truths, posterior, kind):
 if __name__ == '__main__':
     (
         outdir,
+        cut,
         injections,
         posteriors,
         truths,
@@ -366,7 +373,7 @@ if __name__ == '__main__':
     priors = ConditionalPriorDict('./priors/lvk.prior')
     kind, truths = load_astro_distribution(truths)
 
-    injections = get_injections(injections)
+    injections = get_injections(injections, cut=cut)
 
     key = jax.random.key(seed)
     posteriors = get_posteriors(key, outdir, posteriors, nobs, deltas=deltas)
