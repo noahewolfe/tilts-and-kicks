@@ -25,7 +25,8 @@ from bilby.core.prior import ConditionalPriorDict
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
 from pixelpop.models.gwpop_models import trunc_gaussian
 
-from data import resample_and_reshape_posteriors
+from data import load_posteriors
+from data import load_salvo_posteriors
 
 from likelihood import get_bilby_likelihood
 
@@ -112,44 +113,34 @@ def log_model(dataset, parameters):
 
 
 def get_posteriors(key, outdir, path, nobs, deltas=False):
-    if deltas:
-        posteriors = h5ify.load(path)
-        if 'mass_1_source' in posteriors:
-            posteriors['mass_1'] = posteriors.pop('mass_1_source')
-        posteriors = {
-            k : posteriors[k].reshape(-1, 1)
-            for k in [
-                'mass_1',
-                'mass_ratio',
-                'redshift',
-                'a_1',
-                'a_2',
-                'cos_tilt_1',
-                'cos_tilt_2',
-                'log_prior'
-            ]
-        }
+
+    _, ext = os.path.splitext(path)
+
+    if ext in ['.hdf5', '.h5']:
+        posteriors = load_posteriors(path, deltas=deltas)
+    elif ext in ['.pkl']:
+        if deltas:
+            raise NotImplementedError('No delta functions at salvo posts yet')
+        posteriors = load_salvo_posteriors(path)
     else:
-        data = h5ify.load(path)
-        posteriors = list(data.values())
-        for p in posteriors:
-            p.pop('attrs')
-        posteriors = resample_and_reshape_posteriors(posteriors)
-        posteriors['log_prior'] = np.log(posteriors.pop('prior'))
+        raise ValueError(f'unknown posteriors extension {ext}')
 
-    idxs = jax.random.choice(
-        key,
-        len(posteriors['log_prior']),
-        shape=(nobs,),
-        replace=False
-    )
-    idxs = jnp.sort(idxs)
+    if nobs == len(posteriors['log_prior']):
+        return posteriors
+    else:
+        idxs = jax.random.choice(
+            key,
+            len(posteriors['log_prior']),
+            shape=(nobs,),
+            replace=False
+        )
+        idxs = jnp.sort(idxs)
 
-    np.save(f'{outdir}/idxs.npy', idxs)
+        np.save(f'{outdir}/idxs.npy', idxs)
 
-    posteriors = {k : v[idxs] for k, v in posteriors.items()}
+        posteriors = {k : v[idxs] for k, v in posteriors.items()}
 
-    h5ify.save(f'{outdir}/posteriors.h5', posteriors, mode='w')
+        h5ify.save(f'{outdir}/posteriors.h5', posteriors, mode='w')
 
     return posteriors
 
@@ -162,6 +153,8 @@ def get_injections(path, cut=15):
     for k in list(injections.keys()):
         if k not in ['attrs', 'total_generated', 'model', 'parameters']:
             injections[k] = injections[k][mask]
+    if 'prior' in injections and 'log_prior' not in injections:
+        injections['log_prior'] = np.log(injections.pop('prior'))
     return injections
 
 
