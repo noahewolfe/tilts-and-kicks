@@ -334,6 +334,7 @@ def make_ppds(outdir, truths, posterior, kind):
 
     if kind == 'hyperparameters':
         p_true = ppd_for_sample(truths)
+        # TODO: we could do MC chieff here for just the truths and KDE result
 
     plot_order = [
         ('mass_1', r'$m_1$'),
