@@ -3,6 +3,7 @@ import sys
 
 import jax
 import jax.numpy as jnp
+from jax.scipy.stats import gaussian_kde
 from jax_tqdm import scan_tqdm
 
 import h5ify
@@ -102,13 +103,8 @@ def build_samplers(parameters, eps=1e-10):
     return sample_q, sample_chi, sample_gauss
 
 
-if __name__ == '__main__':
-    outdir = os.path.abspath(sys.argv[1])
-    posterior = h5ify.load(f'{outdir}/extras.h5')
-    posteriors = {k : jnp.array(v) for k, v in posterior.items()}
-
-    nsamples = len(posteriors['xi_spin'])
-    nmc = 10_000
+def monte_carlo_sample_chieff_and_kde(posterior, nmc=10_000):
+    nsamples = len(posterior['xi_spin'])
 
     @scan_tqdm(nsamples)
     def step(key, d):
@@ -136,11 +132,16 @@ if __name__ == '__main__':
                 a_2=a2,
                 cos_tilt_1=ct1,
                 cos_tilt_2=ct2,
-                chi_eff=chi_eff
+                chi_eff=chi_eff,
             )
 
         key, _key = jax.random.split(key)
         samples = jax.vmap(sample)(jax.random.split(_key, nmc))
+
+        test_chi = jnp.linspace(-1, 1, 500)
+        log_prob = gaussian_kde(samples['chi_eff']).logpdf(test_chi)
+
+        samples['log_prob'] = log_prob
 
         return key, samples
 
@@ -149,5 +150,12 @@ if __name__ == '__main__':
         jax.random.key(1),
         (jnp.arange(nsamples), posterior)
     )
+    return samples
 
+
+if __name__ == '__main__':
+    outdir = os.path.abspath(sys.argv[1])
+    posterior = h5ify.load(f'{outdir}/extras.h5')
+    posterior = {k : jnp.array(v) for k, v in posterior.items()}
+    samples = monte_carlo_sample_chieff_and_kde(posterior)
     h5ify.save(f'{outdir}/mcppd.h5', samples, mode='w')

@@ -19,7 +19,6 @@ if not hasattr(np.linalg, "linalg"):
     np.linalg.linalg = np.linalg
 
 from bilby import run_sampler
-from bilby.core.prior import Uniform
 from bilby.core.prior import ConditionalPriorDict
 
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
@@ -35,6 +34,10 @@ from models import log_iid_spin_mag_truncnorm
 from models import log_nid_iso_gauss_tilt
 from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
 from models import log_marg_iso_gauss_spin_tilt
+
+from chieff_ppd import monte_carlo_sample_chieff_and_kde
+
+from util import calc_chieff
 
 parser = ArgumentParser()
 parser.add_argument('--outdir', type=str)
@@ -98,6 +101,15 @@ def load_astro_distribution(path):
         for i in [1, 2]:
             if f'tilt_{i}' in truths and f'cos_tilt_{i}' not in truths:
                 truths[f'cos_tilt_{i}'] = np.cos(truths.pop(f'tilt_{i}'))
+
+        if 'chi_eff' not in truths:
+            truths['chi_eff'] = calc_chieff(
+                truths['mass_ratio'],
+                truths['a_1'],
+                truths['a_2'],
+                truths['cos_tilt_1'],
+                truths['cos_tilt_2']
+            )
     else:
         raise ValueError(f'Unknown extension {ext} on truths file')
 
@@ -148,7 +160,7 @@ def log_model(dataset, parameters):
 
 
 def get_posteriors(key, outdir, path, nobs, deltas=False):
-
+    """ load noah or salvo posteriors, inferring kind based on ext """
     _, ext = os.path.splitext(path)
 
     if ext in ['.hdf5', '.h5']:
@@ -297,13 +309,20 @@ def make_ppds(outdir, truths, posterior, kind):
 
     _, ppds = jax.lax.scan(step, None, (jnp.arange(n), posterior))
 
+    mc_ppd = monte_carlo_sample_chieff_and_kde()
+    ppds['chi_eff'] = jnp.exp(mc_ppd['log_prob'])
+    ppds['monte_carlo_chi_eff_samples'] = {
+        k : v for k, v in mc_ppd.items() if k not in ['log_prob']
+    }
+
     xs = dict(
         mass_1=np.array(m1_grid),
         mass_ratio=np.array(q_grid),
         a_1=np.array(a_grid),
         a_2=np.array(a_grid),
         cos_tilt_1=np.array(ct_grid),
-        cos_tilt_2=np.array(ct_grid)
+        cos_tilt_2=np.array(ct_grid),
+        chi_eff=np.linspace(-1, 1, 500)
     )
     ppds = {k: np.array(v) for k, v in ppds.items()}
     medians = {k: np.median(v, axis=0) for k, v in ppds.items()}
@@ -322,12 +341,13 @@ def make_ppds(outdir, truths, posterior, kind):
         ('a_1', r'$a_1$'),
         ('a_2', r'$a_2$'),
         ('cos_tilt_1', r'$\cos\theta_1$'),
-        ('cos_tilt_2', r'$\cos\theta_2$')
+        ('cos_tilt_2', r'$\cos\theta_2$'),
+        ('chi_eff', r'$\chi_\mathrm{eff}$')
     ]
     for (k, label) in plot_order:
         fig, ax = plt.subplots()
 
-        if kind == 'hyperparameters':
+        if kind == 'hyperparameters' and k != 'chi_eff':
             ax.plot(xs[k], p_true[k], lw=1.7, color='black', linestyle='--')
         else:
             ax.hist(
