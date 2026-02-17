@@ -12,7 +12,7 @@ set -euox pipefail
 export JAX_ENABLE_X64=True
 
 nobs=150
-seed=1764
+seed=1768
 outdir="../../data/inference/injection"
 outdir="${outdir}/salvo-iso/nobs${nobs}-seed${seed}-ulin-broad"
 

@@ -1,5 +1,7 @@
 import os
 import json
+from typing import Any, Union
+from jax.typing import ArrayLike
 
 
 def choose_grid(log_density, lower, upper, eps, n_init=11, n_max=10_000):
@@ -439,3 +441,61 @@ def primary_mass_to_chirp_mass_jacobian(samples):
     """
     return (1 + samples["mass_ratio"]) ** 0.2 / samples["mass_ratio"] ** 0.6
 
+
+def _tupleset(t: tuple, i: int, value: Any) -> tuple:
+    """ ripped from: https://github.com/f0uriest/quadax/blob/65a0b151864b51f5b8b82b6e6373bf5beceb7235/quadax/sampled.py#L13C1-L17C1 """
+    li = list(t)
+    li[i] = value
+    return tuple(li)
+
+
+def cumulative_trapezoid(
+    y: ArrayLike,
+    *,
+    x: Union[None, ArrayLike] = None,
+    dx: ArrayLike = 1.0,
+    axis: int = -1,
+    initial: Union[ArrayLike, None] = None,
+):
+    """ ripped from https://github.com/f0uriest/quadax/blob/65a0b151864b51f5b8b82b6e6373bf5beceb7235/quadax/sampled.py#L118 """
+    import jax.numpy as jnp
+
+    y = jnp.asarray(y)
+    if x is None:
+        d = dx
+    else:
+        x = jnp.asarray(x)
+        if x.ndim == 1:
+            d = jnp.diff(x)
+            # reshape to correct shape
+            shape = [1] * y.ndim
+            shape[axis] = -1
+            d = d.reshape(shape)
+        elif len(x.shape) != len(y.shape):
+            raise ValueError(
+                "If given, shape of x must be 1-D or the " "same as y."
+            )
+        else:
+            d = jnp.diff(x, axis=axis)
+
+        if d.shape[axis] != y.shape[axis] - 1:
+            raise ValueError(
+                "If given, length of x along axis must be the " "same as y."
+            )
+
+    nd = len(y.shape)
+    slice1 = _tupleset((slice(None),) * nd, axis, slice(1, None))
+    slice2 = _tupleset((slice(None),) * nd, axis, slice(None, -1))
+    res = jnp.cumsum(d * (y[slice1] + y[slice2]) / 2.0, axis=axis)
+
+    if initial is not None:
+        if not jnp.isscalar(initial):
+            raise ValueError("`initial` parameter should be a scalar.")
+
+        shape = list(res.shape)
+        shape[axis] = 1
+        res = jnp.concatenate(
+            [jnp.full(shape, initial, dtype=res.dtype), res], axis=axis
+        )
+
+    return res

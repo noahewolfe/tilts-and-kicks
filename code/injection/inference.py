@@ -431,7 +431,7 @@ if __name__ == '__main__':
                 truths.pop(k)
         result.plot_corner(truths=truths)
     else:
-        result.plot_corner()
+        result.plot_corner(parameters=list(result.posterior.keys()))
 
     make_ppds(outdir, truths, posterior, kind)
 

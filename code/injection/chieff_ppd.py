@@ -1,61 +1,153 @@
 import os
 import sys
-from copy import deepcopy
 
 import jax
-jax.config.update('jax_enable_x64', True)
+import jax.numpy as jnp
+from jax_tqdm import scan_tqdm
 
 import h5ify
-import numpy as np
-from tqdm import trange
 
-from vt import get_inj_priors
-from vt import draw_injection
+from pixelpop.models.gwpop_models import trunc_gaussian
+from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
 
-model = dict(
-    mass_1_source='highpass_broken_powerlaw_two_peaks',
-    mass_ratio='highpass_powerlaw',
-    redshift='powerlaw',
-    a_1='iid_truncnorm',
-    a_2='iid_truncnorm',
-    cos_tilt='iso_gauss',
-)
+from models import build_interp_sampler
+
+from util import logtrapz
+from util import calc_chieff
 
 
-def list_to_dict(arr):
-    return {
-        k : np.concatenate([np.atleast_1d(a[k]) for a in arr])
-        for k in arr[0].keys()
-    }
+def log_p_q(parameters):
+    """ log of density of q marginalized over m1 """
+    if 'lam_2' not in parameters:
+        lam_2 = 1 - parameters['lam_1'] - parameters['lam_0']
+    else:
+        lam_2 = parameters['lam_2']
+
+    test_m1 = jnp.linspace(3, 300, 500)
+    test_q = jnp.linspace(0.1, 1, 500)
+    mm, qq = jnp.meshgrid(test_m1, test_q, indexing='ij')
+
+    dataset = dict(mass_1=mm, mass_ratio=qq)
+
+    log_p_m1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+        dataset['mass_1'],
+        alpha_1=parameters['alpha_1'],
+        alpha_2=parameters['alpha_2'],
+        mlow_1=parameters['mlow_1'],
+        break_mass=parameters['break_mass'],
+        delta_m_1=parameters['delta_m_1'],
+        lam_fractions=(
+            parameters['lam_0'], parameters['lam_1'], lam_2
+        ),
+        mpp_1=parameters['mpp_1'],
+        sigpp_1=parameters['sigpp_1'],
+        mpp_2=parameters['mpp_2'],
+        sigpp_2=parameters['sigpp_2'],
+        mmax=300.0,
+        gaussian_mass_maximum=100.0
+    )
+
+    log_p_q = PowerlawPlusPeak_MassRatio(
+        dataset,
+        slope=parameters['beta'],
+        minimum=parameters['mlow_1'],
+        delta_m=parameters['delta_m_1']
+    )
+
+    return test_q, logtrapz(log_p_m1 + log_p_q, test_m1, axis=0)
+
+
+def sample_iso_gauss(key, branching_ratio, sample_gauss):
+    key, _key = jax.random.split(key)
+    u = jax.random.uniform(_key)
+    keys = jax.random.split(key, 2)
+    return jax.lax.select(
+        u < branching_ratio,
+        jax.vmap(sample_gauss)(keys),
+        jax.vmap(lambda k: jax.random.uniform(k, minval=-1, maxval=1))(keys)
+    )
+
+
+def build_samplers(parameters, eps=1e-10):
+    """ build inverse CDF samplers for mass ratio and spin mag, and gaussian
+        component of the cosine-spin tilt distributions
+    """
+    # gaussian-component of cos tilt
+    xs = jnp.linspace(-1 + eps, 1 - eps, 10_000)
+    log_p = trunc_gaussian(
+        xs,
+        mean=parameters['mu_spin'],
+        sig=parameters['sigma_spin'],
+        lower=-1,
+        upper=1
+    )
+    sample_gauss = build_interp_sampler(jnp.exp(log_p), xs)
+
+    # mass ratio marginalized over m1
+    xs, log_p = log_p_q(parameters)
+    sample_q = build_interp_sampler(jnp.exp(log_p), xs)
+
+    # chi1, chi2
+    xs = jnp.linspace(-1 + eps, 1 - eps, 500)
+    log_p = trunc_gaussian(
+        xs,
+        mean=parameters['mu_chi'],
+        sig=parameters['sigma_chi'],
+        lower=0,
+        upper=1
+    )
+    sample_chi = build_interp_sampler(jnp.exp(log_p), xs)
+
+    return sample_q, sample_chi, sample_gauss
 
 
 if __name__ == '__main__':
-    #outdir = '/n/home03/newolfe/projects/tilts-and-kicks/data/inference/injection'
-    #outdir = f'{outdir}/tests/260207/nobs70-seed746566-ulin-broad'
     outdir = os.path.abspath(sys.argv[1])
     posterior = h5ify.load(f'{outdir}/extras.h5')
+    posteriors = {k : jnp.array(v) for k, v in posterior.items()}
 
-    nsamples = len(posterior['variance'])
-    nmc = 100
+    nsamples = len(posteriors['xi_spin'])
+    nmc = 10_000
 
-    all_injs = []
+    @scan_tqdm(nsamples)
+    def step(key, d):
+        _, parameters = d
 
-    for i in trange(nsamples):
-        parameters = {k : v[i] for k, v in posterior.items()}
-        parameters['z_max'] = 1.45
-        parameters['lam_2'] = 1 - parameters['lam_1'] - parameters['lam_0']
+        sample_q, sample_chi, sample_gauss = build_samplers(parameters)
 
-        priors = get_inj_priors(model, parameters)
+        def sample(key):
+            key, _key = jax.random.split(key)
+            q = sample_q(_key)
 
-        injs = []
+            key, _key = jax.random.split(key)
+            a1, a2 = jax.vmap(sample_chi)(jax.random.split(_key, 2))
 
-        for j in trange(nmc):
-            inj = draw_injection(deepcopy(priors), model, parameters)
-            injs.append(inj)
+            key, _key = jax.random.split(key)
+            ct1, ct2 = sample_iso_gauss(
+                _key, parameters['xi_spin'], sample_gauss
+            )
 
-        all_injs.append(list_to_dict(injs))
+            chi_eff = calc_chieff(q, a1, a2, ct1, ct2)
 
-    all_injs = list_to_dict(all_injs)
-    all_injs = {k : v.reshape(nsamples, nmc) for k, v in all_injs.items()}
+            return dict(
+                mass_ratio=q,
+                a_1=a1,
+                a_2=a2,
+                cos_tilt_1=ct1,
+                cos_tilt_2=ct2,
+                chi_eff=chi_eff
+            )
 
-    h5ify.save(f'{outdir}/mcppd.h5', all_injs, mode='w')
+        key, _key = jax.random.split(key)
+        samples = jax.vmap(sample)(jax.random.split(_key, nmc))
+
+        return key, samples
+
+    _, samples = jax.lax.scan(
+        step,
+        jax.random.key(1),
+        (jnp.arange(nsamples), posterior)
+    )
+
+    h5ify.save(f'{outdir}/mcppd.h5', samples, mode='w')
