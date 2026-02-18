@@ -1,0 +1,67 @@
+### LVK priors for redshift
+lamb = Uniform(minimum=-10, maximum=10)
+
+### isolated mass distribution
+alpha_1 = Uniform(minimum=-4, maximum=12)
+alpha_2 = Uniform(minimum=-4, maximum=12)
+break_mass = Uniform(minimum=20, maximum=50)
+mpp_1 = Uniform(minimum=5, maximum=20)
+sigpp_1 = Uniform(minimum=0, maximum=10)
+mpp_2 = Uniform(minimum=25, maximum=60)
+sigpp_2 = Uniform(minimum=0, maximum=10)
+delta_m_1 = Uniform(minimum=0, maximum=10)
+mlow_1 = Uniform(minimum=3, maximum=6.5)
+
+lam_0 = DirichletElement(order=0, n_dimensions=3, label='lam_')
+lam_1 = DirichletElement(order=1, n_dimensions=3, label='lam_')
+
+beta = Uniform(minimum=-2, maximum=7)
+
+### triples mass distribution
+alpha_1_iso = Uniform(minimum=-4, maximum=12)
+alpha_2_iso = Uniform(minimum=-4, maximum=12)
+break_mass_iso = Uniform(minimum=20, maximum=50)
+mpp_1_iso = Uniform(minimum=5, maximum=20)
+sigpp_1_iso = Uniform(minimum=0, maximum=10)
+mpp_2_iso = Uniform(minimum=25, maximum=60)
+sigpp_2_iso = Uniform(minimum=0, maximum=10)
+delta_m_1_iso = Uniform(minimum=0, maximum=10)
+mlow_1_iso = Uniform(minimum=3, maximum=6.5)
+
+lam_iso_0 = DirichletElement(order=0, n_dimensions=3, label='lam_iso_')
+lam_iso_1 = DirichletElement(order=1, n_dimensions=3, label='lam_iso_')
+
+beta_iso = Uniform(minimum=-2, maximum=7)
+
+### hierarchical mass distribution
+alpha_1_high_iso = Uniform(minimum=-4, maximum=12)
+alpha_2_high_iso = Uniform(minimum=-4, maximum=12)
+break_mass_high_iso = Uniform(minimum=20, maximum=50)
+mpp_1_high_iso = Uniform(minimum=5, maximum=20)
+sigpp_1_high_iso = Uniform(minimum=0, maximum=10)
+mpp_2_high_iso = Uniform(minimum=25, maximum=60)
+sigpp_2_high_iso = Uniform(minimum=0, maximum=10)
+delta_m_1_high_iso = Uniform(minimum=0, maximum=10)
+mlow_1_high_iso = Uniform(minimum=3, maximum=6.5)
+
+lam_high_iso_0 = DirichletElement(order=0, n_dimensions=3, label='lam_high_iso_')
+lam_high_iso_1 = DirichletElement(order=1, n_dimensions=3, label='lam_high_iso_')
+
+beta_high_iso = Uniform(minimum=-2, maximum=7)
+
+### From 2512.15873
+mu_chi = Uniform(minimum=0, maximum=1)
+mu_chi_iso = Uniform(minimum=0, maximum=1)
+mu_chi_high_iso = Uniform(minimum=0, maximum=1)
+
+sigma_chi = Uniform(minimum=0.1, maximum=1)
+sigma_chi_iso = Uniform(minimum=0.1, maximum=1)
+sigma_chi_high_iso = Uniform(minimum=0.1, maximum=1)
+
+xi_spin = Uniform(minimum=0, maximum=1)
+mu_spin = Uniform(minimum=-1, maximum=1)
+
+# Tab.1, row 9
+sigma_spin = TruncatedGaussian(mu=0, sigma=0.5, minimum=0.1, maximum=4)
+
+transition_mass = Uniform(minimum=10, maximum=100)
