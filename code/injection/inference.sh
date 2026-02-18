@@ -14,7 +14,7 @@ export JAX_ENABLE_X64=True
 nobs=150
 seed=1768
 outdir="../../data/inference/injection"
-outdir="${outdir}/salvo-iso/nobs${nobs}-seed${seed}-ulin-broad"
+outdir="${outdir}/salvo-iso/nobs${nobs}-seed${seed}-ulin-broad-var1"
 
 mkdir -p $outdir
 
@@ -24,7 +24,7 @@ mkdir -p $outdir
     --injections ../../data/vt/zenodo.17080422/injections.h5 \
     --truths ../../data/pe/salvo-iso/allinjs_list_O4.dat \
     --seed $seed \
-    --maximum-variance 5 \
+    --maximum-variance 1 \
     --nobs $nobs \
     --cut 11 \
     > $outdir/log.out 2> $outdir/log.err

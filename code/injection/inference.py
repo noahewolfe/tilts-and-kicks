@@ -452,7 +452,8 @@ if __name__ == '__main__':
                 truths.pop(k)
         result.plot_corner(truths=truths)
     else:
-        result.plot_corner(parameters=list(result.posterior.keys()))
+        parameters = list(priors.keys()) + ['variance']
+        result.plot_corner(parameters=parameters))
 
     make_ppds(outdir, truths, posterior, kind)
 
