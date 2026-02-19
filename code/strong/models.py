@@ -237,6 +237,8 @@ def log_iid_spin_tilt_truncnorm(dataset, parameters):
 def log_stegmann_spin(dataset, parameters):
     """ See Eqs.1-3 in 2512.15873 """
     tau = log_iid_spin_tilt_truncnorm(dataset, parameters)
+    tau_iso = jnp.log(1 / 4)  # Unif in cos tilt 1 and 2, each on [-1, 1]
+
     chi = log_iid_spin_mag_truncnorm(dataset, parameters)
     chi_iso = log_iid_spin_mag_truncnorm(dataset, parameters, key='iso')
     chi_high_iso = log_iid_spin_mag_truncnorm(

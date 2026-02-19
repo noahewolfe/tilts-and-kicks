@@ -43,7 +43,16 @@ def parse_args():
     return outdir, args.priors, args.nprior, args.maximum_variance, args.nlive
 
 
-def run(priors):
+def run(
+    outdir,
+    priors,
+    log_model,
+    posteriors,
+    injections,
+    nlive,
+    nprior=0,
+    maximum_variance=1
+):
     # NOTE: under construction
     priors = ConditionalPriorDict(priors)
     priors.to_file(outdir, 'run')
@@ -56,8 +65,10 @@ def run(priors):
         rate=False
     )
 
-    if npri > 0:
-        prior_samples = {k : jnp.array(v) for k, v in priors.sample(npri).items()}
+    if nprior > 0:
+        prior_samples = {
+            k : jnp.array(v) for k, v in priors.sample(nprior).items()
+        }
         extras = scan(likelihood.generate_extra_statistics)(prior_samples)
         extras['samples'] = prior_samples
         h5ify.save(f'{outdir}/prior.h5', extras, mode='w')
@@ -75,7 +86,6 @@ def run(priors):
 
     result.plot_corner()
 
-    nsamps = len(result.posterior)
     samples = result.posterior.to_dict('list')
     samples = {k : jnp.array(v) for k, v in samples.items()}
 
