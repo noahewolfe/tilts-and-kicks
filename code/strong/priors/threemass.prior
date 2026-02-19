@@ -1,7 +1,7 @@
 ### LVK priors for redshift
 lamb = Uniform(minimum=-10, maximum=10)
 
-### isolated mass distribution
+### low-mass tilt truncnorm mass distribution
 alpha_1 = Uniform(minimum=-4, maximum=12)
 alpha_2 = Uniform(minimum=-4, maximum=12)
 break_mass = Uniform(minimum=20, maximum=50)
@@ -17,7 +17,7 @@ lam_1 = DirichletElement(order=1, n_dimensions=3, label='lam_')
 
 beta = Uniform(minimum=-2, maximum=7)
 
-### triples mass distribution
+### low-mass iso mass distribution
 alpha_1_iso = Uniform(minimum=-4, maximum=12)
 alpha_2_iso = Uniform(minimum=-4, maximum=12)
 break_mass_iso = Uniform(minimum=20, maximum=50)
@@ -33,7 +33,7 @@ lam_iso_1 = DirichletElement(order=1, n_dimensions=3, label='lam_iso_')
 
 beta_iso = Uniform(minimum=-2, maximum=7)
 
-### hierarchical mass distribution
+### high-mass iso mass distribution
 alpha_1_high_iso = Uniform(minimum=-4, maximum=12)
 alpha_2_high_iso = Uniform(minimum=-4, maximum=12)
 break_mass_high_iso = Uniform(minimum=20, maximum=50)

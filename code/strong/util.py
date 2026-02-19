@@ -232,7 +232,11 @@ def scan(fn, desc=None):
         return None, fn(x)
 
     def tracked(xs):
-        n = len(xs)
+        if isinstance(xs, dict):
+            n = len(xs[list(xs.keys())[0]])
+        else:
+            n = len(xs)
+
         _, ys = jax.lax.scan(
             scan_tqdm(n, desc=desc)(step),
             None,

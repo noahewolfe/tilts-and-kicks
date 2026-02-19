@@ -1,5 +1,7 @@
-import h5ify
+import os
 from argparse import ArgumentParser
+
+import h5ify
 
 import jax
 import jax.numpy as jnp
@@ -16,17 +18,18 @@ from data import get_data
 from models import log_powerlaw_redshift
 #from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
 
-from models import log_twomass_stegmann_spin
+from models import log_threemass_stegmann_spin
 
 from likelihood import get_bilby_likelihood
 from util import write_config
+from util import scan
 
 parser = ArgumentParser()
 parser.add_argument('--outdir')
-parser.add_argument('--prior', type=str)
-parser.add_argument('--nlive', default=150)
-parser.add_argument('--nprior', default=0)
-parser.add_argument('--maximum-variance', default=1)
+parser.add_argument('--priors', type=str, required=True)
+parser.add_argument('--nlive', default=150, type=int)
+parser.add_argument('--nprior', default=0, type=int)
+parser.add_argument('--maximum-variance', default=1, type=float)
 
 
 def taper(maximum_variance, v):
@@ -36,7 +39,7 @@ def taper(maximum_variance, v):
 
 def log_model(dataset, parameters):
     """ log-density of the population model """
-    log_m1q_chi_tau = log_twomass_stegmann_spin(dataset, parameters)
+    log_m1q_chi_tau = log_threemass_stegmann_spin(dataset, parameters)
     log_p_z = log_powerlaw_redshift(dataset, parameters)
     return log_m1q_chi_tau + log_p_z
 
@@ -45,8 +48,8 @@ def parse_args():
     args = parser.parse_args()
     outdir = args.outdir
     os.makedirs(outdir, exist_ok=True)
-    write_config(outdir)
-    return outdir, args.prior, args.nprior, args.maximum_variance, args.nlive
+    write_config(args, outdir=outdir)
+    return outdir, args.priors, args.nprior, args.maximum_variance, args.nlive
 
 
 if __name__ == '__main__':
@@ -70,18 +73,8 @@ if __name__ == '__main__':
     )
 
     if npri > 0:
-        @scan_tqdm(npri)
-        def step(carry, d):
-            _, x = d
-            extras = likelihood.generate_extra_statistics(x)
-            return carry, extras
-
         prior_samples = {k : jnp.array(v) for k, v in priors.sample(npri).items()}
-        _, extras = jax.lax.scan(
-            scan_tqdm(npri)(step),
-            None,
-            (jnp.arange(npri), prior_samples)
-        )
+        extras = scan(likelihood.generate_extra_statistics)(prior_samples)
         extras['samples'] = prior_samples
         h5ify.save(f'{outdir}/prior.h5', extras, mode='w')
 
@@ -102,10 +95,5 @@ if __name__ == '__main__':
     samples = result.posterior.to_dict('list')
     samples = {k : jnp.array(v) for k, v in samples.items()}
 
-    _, extras = jax.lax.scan(
-        scan_tqdm(nsamps)(step),
-        None,
-        (jnp.arange(nsamps), samples)
-    )
-    extras['samples'] = samples
+    extras = scan(likelihood.generate_extra_statistics)(samples)
     h5ify.save(f'{outdir}/posterior.h5', extras, mode='w')

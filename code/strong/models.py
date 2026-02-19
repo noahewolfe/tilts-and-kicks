@@ -306,7 +306,7 @@ def log_bpl2p_m1q(dataset, parameters, key=None):
 
 def log_twomass_stegmann_spin(dataset, parameters):
     tau = log_iid_spin_tilt_truncnorm(dataset, parameters)
-    tau_iso = jnp.log(1 / 4) # Unif in cos tilt 1 and 2, each on [-1, 1]
+    tau_iso = jnp.log(1 / 4)  # Unif in cos tilt 1 and 2, each on [-1, 1]
 
     chi = log_iid_spin_mag_truncnorm(dataset, parameters)
     chi_iso = log_iid_spin_mag_truncnorm(dataset, parameters, key='iso')
@@ -335,6 +335,8 @@ def log_twomass_stegmann_spin(dataset, parameters):
 
 def log_threemass_stegmann_spin(dataset, parameters):
     tau = log_iid_spin_tilt_truncnorm(dataset, parameters)
+    tau_iso = jnp.log(1 / 4)  # Unif in cos tilt 1 and 2, each on [-1, 1]
+
     chi = log_iid_spin_mag_truncnorm(dataset, parameters)
     chi_iso = log_iid_spin_mag_truncnorm(dataset, parameters, key='iso')
     chi_high_iso = log_iid_spin_mag_truncnorm(
@@ -349,17 +351,13 @@ def log_threemass_stegmann_spin(dataset, parameters):
         mtilde = parameters['transition_mass']
         zeta = jax.scipy.special.expit(m1 - mtilde)
 
-    isolated_and_triples = jnp.logaddexp(
-        jnp.log(xi) + tau + chi + log_bpl2p_m1q(dataset, parameters),
-        jnp.log((1 - xi) / 4) + chi_iso + log_bpl2p_m1q(dataset, parameters, key='iso')
-    )
+    log_mass = log_bpl2p_m1q(dataset, parameters)
+    log_mass_iso = log_bpl2p_m1q(dataset, parameters, key='iso')
+    log_mass_high_iso = log_bpl2p_m1q(dataset, parameters, key='high_iso') 
 
-    hierarchical = (
-        log_bpl2p_m1q(dataset, parameters, key='high_iso')
-        + chi_high_iso
-    )
+    gauss = jnp.log(1 - zeta) + jnp.log(xi) + tau + chi + log_mass
+    iso_low_mass = jnp.log(1 - zeta) + jnp.log(1 - xi) + tau_iso + chi_iso + log_mass_iso
+    iso_high_mass = jnp.log(zeta) + tau_iso + chi_high_iso + log_mass_high_iso
 
-    return jnp.logaddexp(
-        jnp.log(1 - zeta) + isolated_and_triples,
-        jnp.log(zeta / 4) + hierarchical
-    )
+    log_prob = jnp.logaddexp(gauss, iso_low_mass)
+    return jnp.logaddexp(log_prob, iso_high_mass)
