@@ -304,6 +304,36 @@ def log_bpl2p_m1q(dataset, parameters, key=None):
     return log_p_m1 + log_p_q
 
 
+def log_onemass_stegmann_spin(dataset, parameters):
+    tau = log_iid_spin_tilt_truncnorm(dataset, parameters)
+    tau_iso = jnp.log(1 / 4)  # Unif in cos tilt 1 and 2, each on [-1, 1]
+
+    chi = log_iid_spin_mag_truncnorm(dataset, parameters)
+    chi_iso = log_iid_spin_mag_truncnorm(dataset, parameters, key='iso')
+    chi_high_iso = log_iid_spin_mag_truncnorm(
+        dataset, parameters, key='high_iso'
+    )
+
+    xi = parameters.get('xi_spin', 1)
+    zeta = parameters.get('zeta', 0)
+
+    if 'transition_mass' in parameters:
+        m1 = dataset.get('mass_1_source', dataset.get('mass_1'))
+        mtilde = parameters['transition_mass']
+        zeta = jax.scipy.special.expit(m1 - mtilde)
+
+    gauss = jnp.log(1 - zeta) + jnp.log(xi) + tau + chi
+    iso_low_mass = jnp.log(1 - zeta) + jnp.log(1 - xi) + tau_iso + chi_iso
+    iso_high_mass = jnp.log(zeta) + tau_iso + chi_high_iso
+
+    log_spin = jnp.logaddexp(gauss, iso_low_mass)
+    log_spin = jnp.logaddexp(log_spin, iso_high_mass)
+
+    log_mass = log_bpl2p_m1q(dataset, parameters)
+
+    return log_spin + log_mass
+
+
 def log_twomass_stegmann_spin(dataset, parameters):
     tau = log_iid_spin_tilt_truncnorm(dataset, parameters)
     tau_iso = jnp.log(1 / 4)  # Unif in cos tilt 1 and 2, each on [-1, 1]

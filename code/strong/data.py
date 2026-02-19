@@ -66,7 +66,7 @@ def get_datadir(datadir, catalog, pars):
     return path
 
 
-def _get_sample_set(f, prefer_xphm=False):
+def _get_sample_set(f, prefer_xphm_gwtc3=False, prefer_xphm=False):
     keys = list(set(f) - {'history', 'version'})
 
     wvf = None
@@ -80,6 +80,12 @@ def _get_sample_set(f, prefer_xphm=False):
         # GWTC-3
         if 'C01:Mixed' in f:
             wvf = 'C01:Mixed'
+
+            if prefer_xphm_gwtc3:
+                for k in keys:
+                    if 'XPHM' in k:
+                        wvf = k
+                        break
         # O4a
         elif 'C00:NRSur7dq4' in f:
             wvf = 'C00:NRSur7dq4'
@@ -95,10 +101,12 @@ def _get_sample_set(f, prefer_xphm=False):
     return f[wvf]['posterior_samples']
 
 
-def load_and_reduce_pe(path, pars, prefer_xphm=False):
+def load_and_reduce_pe(path, pars, prefer_xphm_gwtc3, prefer_xphm=False):
     # TODO: switches for prior choices?
     with h5py.File(path, 'r') as f:
-        data = _get_sample_set(f, prefer_xphm=prefer_xphm)
+        data = _get_sample_set(
+            f, prefer_xphm_gwtc3=prefer_xphm_gwtc3, prefer_xphm=prefer_xphm
+        )
         posterior = {par: data[par][:] for par in pars}
         posterior['prior'] = UniformSourceFrame(
             minimum=posterior['redshift'].min(),
@@ -133,6 +141,7 @@ def get_posteriors(
     xp=np,
     datadir='../../data/lvk',
     seed=1,
+    prefer_xphm_gwtc3=False,
     prefer_xphm=False,
     resample=True
 ):
@@ -143,8 +152,12 @@ def get_posteriors(
 
     if prefer_xphm:
         datapath = f'{datadir}/posteriors-xphm.h5'
+    elif prefer_xphm_gwtc3:
+        datapath = f'{datadir}/posteriors-xphm-gwtc3.h5'
     else:
         datapath = f'{datadir}/posteriors.h5'
+
+    print(f'data will be saved to/loaded from {datapath}')
 
     if load and os.path.exists(datapath):
         print(f'loading posteriors from {datapath}')
@@ -155,7 +168,7 @@ def get_posteriors(
         if 'log_prior' in posteriors:
             for par in posteriors:
                 posteriors[par] = xp.array(posteriors[par])
-        elif prefer_xphm:
+        elif not resample:
             # assumes posteriors is structured like:
             # { event_name : posterior dict }
             posteriors = [
@@ -233,7 +246,12 @@ def get_posteriors(
             events.remove(event)
 
     posteriors = [
-        load_and_reduce_pe(path, pars, prefer_xphm=prefer_xphm)
+        load_and_reduce_pe(
+            path,
+            pars,
+            prefer_xphm_gwtc3=prefer_xphm_gwtc3,
+            prefer_xphm=prefer_xphm
+        )
         for path in tqdm(files)
     ]
 
@@ -414,8 +432,14 @@ def cut_data(event_data, injections, snr_thresh=10, far_thresh=1):
     return events, posts, injs
 
 
-def get_data(snr_thresh=10, far_thresh=1, prefer_xphm=False):
-    event_data = get_posteriors(load=True, prefer_xphm=prefer_xphm)
+def get_data(
+    snr_thresh=10, far_thresh=1, prefer_xphm=False, prefer_xphm_gwtc3=False
+):
+    event_data = get_posteriors(
+        load=True,
+        prefer_xphm=prefer_xphm,
+        prefer_xphm_gwtc3=prefer_xphm_gwtc3
+    )
     injections = get_injections(load=True)
     events, posteriors, injections = cut_data(
         event_data,
