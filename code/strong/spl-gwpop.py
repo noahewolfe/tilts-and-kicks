@@ -23,14 +23,39 @@ gwpop.set_backend("jax")
 
 xp = gwpop.utils.xp
 
-datadir = '../../data/stegmann'
-posteriors = pd.read_pickle(f"{datadir}/gwtc4_posteriors.pkl")
-injections = pd.read_pickle(f"{datadir}/gwtc4_injections_dict.pkl")
+# stegmann data
+#datadir = '../../data/stegmann'
+#posteriors = pd.read_pickle(f"{datadir}/gwtc4_posteriors.pkl")
+#injections = pd.read_pickle(f"{datadir}/gwtc4_injections_dict.pkl")
+
+### load noah data
+from data import get_data
+_, posteriors, injections = get_data(
+    snr_thresh=10,
+    far_thresh=1,
+    prefer_xphm=False,
+    prefer_xphm_gwtc3=True
+)
+
+if 'log_prior' in posteriors:
+    posteriors['prior'] = jnp.exp(posteriors['log_prior'])
+if 'log_prior' in injections:
+    injections['prior'] = jnp.exp(injections['log_prior'])
+
+# format expected by gwpop
+posteriors = [
+    pd.DataFrame.from_dict(
+        {k : v[i] for k, v in posteriors.items()},
+        orient='columns'
+    )
+    for i in range(posteriors['prior'].shape[0])
+]
+###
 
 import jax.numpy as jnp
 
 # We are considering the default Gaussian_Isotropic_Cut spin model from Stegmann et al. (2025)
-label = 'Gaussian_Isotropic_Cut-NOAH-LOG-MODEL'
+label = '../../data/inference/strong/Gaussian_Isotropic_Cut-Stegmann-model_Stegmann-code_Noah-data'
 
 from models import log_stegmann_spin
 
@@ -57,7 +82,7 @@ def spin_model(dataset, mu_1, sigma_1, mu_tilt_1, sigma_tilt_1,
     cos_tilt_2 = dataset["cos_tilt_2"]
     m_1 = dataset["mass_1"]
 
-    """
+    # STEGMANN model
     # Free Gaussian component
     comp1 = gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0) * \
             gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0) * \
@@ -79,8 +104,9 @@ def spin_model(dataset, mu_1, sigma_1, mu_tilt_1, sigma_tilt_1,
     
     # Combine components with mass-dependent transition
     return (1 - zeta) * (weight_a * comp1 + (1 - weight_a) * comp2) + zeta * comp3
-    """
 
+    # NOAH model
+    """
     return jnp.exp(log_stegmann_spin(
         dataset, dict(
             mu_chi=mu_1,
@@ -95,6 +121,7 @@ def spin_model(dataset, mu_1, sigma_1, mu_tilt_1, sigma_tilt_1,
             transition_mass=m_cut
         )
     ))
+    """
 
 # Define the full population model, combining mass, spin, and redshift models
 model = Model(
