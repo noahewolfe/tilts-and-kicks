@@ -57,11 +57,16 @@ def run(
     priors = ConditionalPriorDict(priors)
     priors.to_file(outdir, 'run')
 
+    if maximum_variance < 0:
+        taper = lambda _: 0
+    else:
+        taper = lambda v: taper(maximum_variance, v)
+
     likelihood = get_bilby_likelihood(
         log_model,
         posteriors,
         injections,
-        taper=lambda v: taper(maximum_variance, v),
+        taper=taper,
         rate=False
     )
 

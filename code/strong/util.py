@@ -79,8 +79,12 @@ def plot_corner(xs, fname=None, trim=None, **kwargs):
 
     if isinstance(xs, dict):
         labels = kwargs.get('labels', list(xs.keys()))
-        kwargs['labels'] = labels
-        unpacked = np.column_stack([xs[k] for k in xs.keys()])
+
+        keys, kwargs['labels'] = labels, labels
+        if isinstance(labels, dict):
+            keys = list(labels.keys())
+            kwargs['labels'] = list(labels.values())
+        unpacked = np.column_stack([xs[k] for k in keys])
         return plot_corner(unpacked, fname=fname, trim=trim, **kwargs)
 
     if isinstance(xs, Array):

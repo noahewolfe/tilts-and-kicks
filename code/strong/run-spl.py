@@ -104,6 +104,7 @@ priors = dict(
 
 if __name__ == '__main__':
     from data import get_data
+    from data import resample_and_reshape_posteriors
 
     outdir, nprior, maximum_variance, nlive = parse_args()
 
@@ -111,12 +112,25 @@ if __name__ == '__main__':
         if isinstance(v, list):
             priors[k] = Uniform(minimum=v[0], maximum=v[1])
 
-    events, posteriors, injections = get_data(
-        snr_thresh=10,
-        far_thresh=1,
-        prefer_xphm=False,
-        prefer_xphm_gwtc3=True
-    )
+    #events, posteriors, injections = get_data(
+    #    snr_thresh=10,
+    #    far_thresh=1,
+    #    prefer_xphm=False,
+    #    prefer_xphm_gwtc3=True
+    #)
+
+    import pandas as pd
+    datadir = '../../data/stegmann'
+    posteriors = pd.read_pickle(f"{datadir}/gwtc4_posteriors.pkl")
+    posteriors = resample_and_reshape_posteriors(posteriors)
+
+    if 'log_prior' not in posteriors:
+        posteriors['log_prior'] = jnp.log(posteriors.pop('prior'))
+
+    injections = pd.read_pickle(f"{datadir}/gwtc4_injections_dict.pkl")
+
+    if 'log_prior' not in injections:
+        injections['log_prior'] = jnp.log(injections.pop('prior'))
 
     run(
         outdir,
