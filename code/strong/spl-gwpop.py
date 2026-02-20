@@ -55,7 +55,7 @@ posteriors = [
 import jax.numpy as jnp
 
 # We are considering the default Gaussian_Isotropic_Cut spin model from Stegmann et al. (2025)
-label = '../../data/inference/strong/Gaussian_Isotropic_Cut-Stegmann-model_Stegmann-code_Noah-data'
+outdir = '../../data/inference/strong/Gaussian_Isotropic_Cut-Stegmann-model_Stegmann-code_Noah-data'
 
 from models import log_stegmann_spin
 
@@ -185,9 +185,9 @@ result = bb.run_sampler(
     priors=priors,
     sampler="dynesty",
     nlive=nlive,
-    label=label,
+    label='run',
     sample="acceptance-walk",
     naccept=naccept,
     save="hdf5",
-    outdir="out_" + label,
+    outdir=outdir,
 )
