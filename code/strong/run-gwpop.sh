@@ -3,9 +3,20 @@
 export CUDA_VISIBLE_DEVICES=0
 export JAX_ENABLE_X64=1
 
-#outdir='../../data/inference/strong/Gaussian_Isotropic_Cut-Stegmann-model_Stegmann-code_Noah-data'
-outdir='../../data/inference/strong/Gaussian_Isotropic_Cut-Noah-model_Stegmann-code_Noah-data'
+data="stegmann"
+model="stegmann"
+var="inf"
+seed=1701
+
+outdir="../../data/inference/strong/gwpop-tests"
+outdir="${outdir}/model-${model}_data-${data}_var-${var}_seed-${seed}"
+
 mkdir -p $outdir
 
 $HOME/.conda/envs/just-for-kicks/bin/python -u spl-gwpop.py \
-    > $outdir/log.out 2> $outdir/log.err
+    --outdir $outdir \
+    --which-data $data \
+    --which-model $model \
+    --sampling-seed $seed \
+    --maximum-uncertainty $var \
+    #> $outdir/log.out 2> $outdir/log.err

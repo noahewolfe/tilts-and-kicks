@@ -1,68 +1,88 @@
 """ ripped from: https://github.com/stegmaja/black-hole-spin-orbit-tilts/blob/main/main.ipynb """
-
 import os
+from argparse import ArgumentParser
+
 import numpy as np
-import bilby as bb
-import gwpopulation as gwpop
-import jax
-import matplotlib.pyplot as plt
 import pandas as pd
-from bilby.core.prior import PriorDict, Uniform, TruncatedNormal
+import matplotlib.pyplot as plt
+
+import bilby as bb
 from bilby.hyper.model import Model
+from bilby.core.prior import PriorDict, Uniform, TruncatedNormal
+
+import gwpopulation as gwpop
 from gwpopulation.experimental.jax import JittedLikelihood
-
-###### NOTES 
-# - using this as-was from stegmann's repo --- we get xi ~ 1
-# - swapping in my model, implemented in log space then exponentiated --- we get xi ~ 1
-#
-#
-
-
 gwpop.set_backend("jax")
 
 xp = gwpop.utils.xp
 
+from util import write_config
+
+parser = ArgumentParser()
+parser.add_argument('--outdir', type=str, required=True)
+parser.add_argument('--which-data', type=str, required=True)
+parser.add_argument('--which-model', type=str, required=True)
+parser.add_argument('--sampling-seed', type=int, default=1701)
+parser.add_argument('--maximum-uncertainty')
+
+args = parser.parse_args()
+write_config(args)
+outdir = args.outdir
+which_data = args.which_data
+which_model = args.which_model
+sampling_seed = args.sampling_seed
+maximum_uncertainty = args.maximum_uncertainty
+
 # stegmann data
-#datadir = '../../data/stegmann'
-#posteriors = pd.read_pickle(f"{datadir}/gwtc4_posteriors.pkl")
-#injections = pd.read_pickle(f"{datadir}/gwtc4_injections_dict.pkl")
+if which_data == 'stegmann':
+    datadir = '../../data/stegmann'
+    posteriors = pd.read_pickle(f"{datadir}/gwtc4_posteriors.pkl")
+    injections = pd.read_pickle(f"{datadir}/gwtc4_injections_dict.pkl")
 
 ### load noah data
-from data import get_data
-_, posteriors, injections = get_data(
-    snr_thresh=10,
-    far_thresh=1,
-    prefer_xphm=False,
-    prefer_xphm_gwtc3=True
-)
-
-if 'log_prior' in posteriors:
-    posteriors['prior'] = xp.exp(posteriors['log_prior'])
-if 'log_prior' in injections:
-    injections['prior'] = xp.exp(injections['log_prior'])
-
-# format expected by gwpop
-posteriors = [
-    pd.DataFrame.from_dict(
-        {k : v[i] for k, v in posteriors.items()},
-        orient='columns'
+elif which_data == 'noah':
+    from data import get_data
+    _, posteriors, injections = get_data(
+        snr_thresh=10,
+        far_thresh=1,
+        prefer_xphm=False,
+        prefer_xphm_gwtc3=True
     )
-    for i in range(posteriors['prior'].shape[0])
-]
+
+    if 'log_prior' in posteriors:
+        posteriors['prior'] = xp.exp(posteriors['log_prior'])
+    if 'log_prior' in injections:
+        injections['prior'] = xp.exp(injections['log_prior'])
+
+    # format expected by gwpop
+    posteriors = [
+        pd.DataFrame.from_dict(
+            {k : v[i] for k, v in posteriors.items()},
+            orient='columns'
+        )
+        for i in range(posteriors['prior'].shape[0])
+    ]
+else:
+    raise ValueError(f'bad data {which_data}')
 ###
 
 
 # We are considering the default Gaussian_Isotropic_Cut spin model from Stegmann et al. (2025)
-outdir = '../../data/inference/strong/Gaussian_Isotropic_Cut-Noah-model_Stegmann-code_Noah-data'
 
-from models import log_stegmann_spin
+if which_model == 'noah':
+    from models import log_stegmann_spin
 
 ################## IMPORTANT SETTINGS ##################
 
 # Control maximum uncertainty in selection function estimation
 # For production runs (as used in Stegmann et al. (2025)), I recommend setting maximum_uncertainty = 1, naccept = 5, nlive = 1000 (which should take several hours)
 # For quick tests, you can set maximum_uncertainty = xp.inf, naccept = 5, nlive = 100 (which should take several minutes)
-maximum_uncertainty = xp.inf
+
+if maximum_uncertainty == 'inf':
+    maximum_uncertainty = xp.inf
+else:
+    maximum_uncertainty = int(maximum_uncertainty)
+print(f'using variance cut : {maximum_uncertainty}')
 naccept = 5
 nlive = 100
 
@@ -81,45 +101,48 @@ def spin_model(dataset, mu_1, sigma_1, mu_tilt_1, sigma_tilt_1,
     m_1 = dataset["mass_1"]
 
     # STEGMANN model
-    """
-    # Free Gaussian component
-    comp1 = gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0) * \
-            gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0) * \
-            gwpop.utils.truncnorm(cos_tilt_1, mu_tilt_1, sigma_tilt_1, 1, -1) * \
-            gwpop.utils.truncnorm(cos_tilt_2, mu_tilt_1, sigma_tilt_1, 1, -1)
+    if which_model == 'stegmann':
+        # Free Gaussian component
+        comp1 = gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0) * \
+                gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0) * \
+                gwpop.utils.truncnorm(cos_tilt_1, mu_tilt_1, sigma_tilt_1, 1, -1) * \
+                gwpop.utils.truncnorm(cos_tilt_2, mu_tilt_1, sigma_tilt_1, 1, -1)
 
-    # Isotropic component
-    comp2 = gwpop.utils.truncnorm(a_1, mu_2, sigma_2, 1, 0) * \
-            gwpop.utils.truncnorm(a_2, mu_2, sigma_2, 1, 0) * \
-            0.5 * 0.5 
-    
-    # High-mass isotropic component
-    comp3 = gwpop.utils.truncnorm(a_1, mu_3, sigma_3, 1, 0) * \
-            gwpop.utils.truncnorm(a_2, mu_3, sigma_3, 1, 0) * \
-            0.5 * 0.5 
-    
-    # Mass-dependent transition function
-    zeta = 1 / (1 + xp.exp(-m_1+m_cut))
-    
-    # Combine components with mass-dependent transition
-    return (1 - zeta) * (weight_a * comp1 + (1 - weight_a) * comp2) + zeta * comp3
-    """
+        # Isotropic component
+        comp2 = gwpop.utils.truncnorm(a_1, mu_2, sigma_2, 1, 0) * \
+                gwpop.utils.truncnorm(a_2, mu_2, sigma_2, 1, 0) * \
+                0.5 * 0.5 
+        
+        # High-mass isotropic component
+        comp3 = gwpop.utils.truncnorm(a_1, mu_3, sigma_3, 1, 0) * \
+                gwpop.utils.truncnorm(a_2, mu_3, sigma_3, 1, 0) * \
+                0.5 * 0.5 
+        
+        # Mass-dependent transition function
+        zeta = 1 / (1 + xp.exp(-m_1+m_cut))
+        
+        # Combine components with mass-dependent transition
+        return (1 - zeta) * (weight_a * comp1 + (1 - weight_a) * comp2) + zeta * comp3
 
     # NOAH model
-    return xp.exp(log_stegmann_spin(
-        dataset, dict(
-            mu_chi=mu_1,
-            sigma_chi=sigma_1,
-            mu_chi_iso=mu_2,
-            sigma_chi_iso=sigma_2,
-            mu_chi_high_iso=mu_3,
-            sigma_chi_high_iso=sigma_3,
-            mu_spin=mu_tilt_1,
-            sigma_spin=sigma_tilt_1,
-            xi_spin=weight_a,
-            transition_mass=m_cut
-        )
-    ))
+    elif which_model == 'noah':
+        return xp.exp(log_stegmann_spin(
+            dataset, dict(
+                mu_chi=mu_1,
+                sigma_chi=sigma_1,
+                mu_chi_iso=mu_2,
+                sigma_chi_iso=sigma_2,
+                mu_chi_high_iso=mu_3,
+                sigma_chi_high_iso=sigma_3,
+                mu_spin=mu_tilt_1,
+                sigma_spin=sigma_tilt_1,
+                xi_spin=weight_a,
+                transition_mass=m_cut
+            )
+        ))
+
+    else:
+        raise ValueError(f'bad model {which_model}')
 
 # Define the full population model, combining mass, spin, and redshift models
 model = Model(
@@ -168,14 +191,39 @@ priors["m_cut"] = Uniform(minimum=10, maximum=100, latex_label="$m_{\\rm cut}$")
 priors["lamb"] = Uniform(minimum=-1, maximum=10, latex_label="$\\lambda_{z}$")
 
 # Test JittedLikelihood
-parameters = priors.sample()
-#likelihood.parameters.update(parameters)
+parameters = dict(
+    alpha=2.0,
+    beta=1.1,
+    mmin=2.25,
+    mmax=85.0,
+    lam=0.03,
+    mpp=34.0,
+    sigpp=3.4,
+    gaussian_mass_maximum=100.0,
+    mu_1=0.2,
+    sigma_1=0.5,
+    mu_2=0.2,
+    sigma_2=0.5,
+    mu_3=0.7,
+    sigma_3=0.3,
+    mu_tilt_1=0.15,
+    sigma_tilt_1=0.4,
+    weight_a=0.86,
+    m_cut=45.0,
+    lamb=2.73
+)
+
+print('testing likelihood with parameters:')
+for k, v in parameters.items():
+    print(f'\t{k} : {v}')
+
 likelihood.log_likelihood_ratio(parameters)
-print(likelihood.log_likelihood_ratio(parameters))
 jit_likelihood = JittedLikelihood(likelihood)
-#jit_likelihood.parameters.update(parameters)
 jit_likelihood.log_likelihood_ratio(parameters)
-print(jit_likelihood.log_likelihood_ratio(parameters))
+print(
+    'log_likelihood:',
+    jit_likelihood.log_likelihood_ratio(parameters)
+)
 
 # Run sampler
 result = bb.run_sampler(
@@ -188,4 +236,5 @@ result = bb.run_sampler(
     naccept=naccept,
     save="hdf5",
     outdir=outdir,
+    seed=sampling_seed
 )
