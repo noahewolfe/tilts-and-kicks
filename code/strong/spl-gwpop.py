@@ -1,8 +1,7 @@
 """ ripped from: https://github.com/stegmaja/black-hole-spin-orbit-tilts/blob/main/main.ipynb """
 
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-
+import numpy as np
 import bilby as bb
 import gwpopulation as gwpop
 import jax
@@ -38,9 +37,9 @@ _, posteriors, injections = get_data(
 )
 
 if 'log_prior' in posteriors:
-    posteriors['prior'] = jnp.exp(posteriors['log_prior'])
+    posteriors['prior'] = xp.exp(posteriors['log_prior'])
 if 'log_prior' in injections:
-    injections['prior'] = jnp.exp(injections['log_prior'])
+    injections['prior'] = xp.exp(injections['log_prior'])
 
 # format expected by gwpop
 posteriors = [
@@ -52,10 +51,9 @@ posteriors = [
 ]
 ###
 
-import jax.numpy as jnp
 
 # We are considering the default Gaussian_Isotropic_Cut spin model from Stegmann et al. (2025)
-outdir = '../../data/inference/strong/Gaussian_Isotropic_Cut-Stegmann-model_Stegmann-code_Noah-data'
+outdir = '../../data/inference/strong/Gaussian_Isotropic_Cut-Noah-model_Stegmann-code_Noah-data'
 
 from models import log_stegmann_spin
 
@@ -83,6 +81,7 @@ def spin_model(dataset, mu_1, sigma_1, mu_tilt_1, sigma_tilt_1,
     m_1 = dataset["mass_1"]
 
     # STEGMANN model
+    """
     # Free Gaussian component
     comp1 = gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0) * \
             gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0) * \
@@ -104,10 +103,10 @@ def spin_model(dataset, mu_1, sigma_1, mu_tilt_1, sigma_tilt_1,
     
     # Combine components with mass-dependent transition
     return (1 - zeta) * (weight_a * comp1 + (1 - weight_a) * comp2) + zeta * comp3
+    """
 
     # NOAH model
-    """
-    return jnp.exp(log_stegmann_spin(
+    return xp.exp(log_stegmann_spin(
         dataset, dict(
             mu_chi=mu_1,
             sigma_chi=sigma_1,
@@ -121,7 +120,6 @@ def spin_model(dataset, mu_1, sigma_1, mu_tilt_1, sigma_tilt_1,
             transition_mass=m_cut
         )
     ))
-    """
 
 # Define the full population model, combining mass, spin, and redshift models
 model = Model(
