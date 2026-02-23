@@ -9,7 +9,7 @@ var="inf"
 seed=1701
 
 outdir="../../data/inference/strong/gwpop-tests"
-outdir="${outdir}/model-${model}_data-${data}_var-${var}_seed-${seed}"
+outdir="${outdir}/model-${model}_data-${data}_var-${var}_seed-${seed}-rerun"
 
 mkdir -p $outdir
 
@@ -19,4 +19,4 @@ $HOME/.conda/envs/just-for-kicks/bin/python -u spl-gwpop.py \
     --which-model $model \
     --sampling-seed $seed \
     --maximum-uncertainty $var \
-    #> $outdir/log.out 2> $outdir/log.err
+    > $outdir/log.out 2> $outdir/log.err

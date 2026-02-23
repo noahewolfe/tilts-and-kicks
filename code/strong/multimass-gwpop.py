@@ -19,18 +19,25 @@ xp = gwpop.utils.xp
 
 from util import write_config
 
+label = 'run'
+
 parser = ArgumentParser()
 parser.add_argument('--outdir', type=str, required=True)
 parser.add_argument('--which-data', type=str, required=True)
-parser.add_argument('--which-model', type=str, required=True)
+parser.add_argument('--model', type=str, required=True)
 parser.add_argument('--sampling-seed', type=int, default=1701)
-parser.add_argument('--maximum-uncertainty')
+parser.add_argument('--maximum-uncertainty', required=True)
+parser.add_argument('--mass-prior', type=str)
 
 args = parser.parse_args()
 write_config(args)
 outdir = args.outdir
 which_data = args.which_data
-which_model = args.which_model
+model = args.model
+
+if model != 'default-spin-simple-power-law-mass':
+    mass_prior = args.mass_prior
+
 sampling_seed = args.sampling_seed
 maximum_uncertainty = args.maximum_uncertainty
 
@@ -67,17 +74,7 @@ else:
     raise ValueError(f'bad data {which_data}')
 ###
 
-# dump the posteriors, injections we're using
-with open(f'{outdir}/posteriors.pkl', 'wb') as f:
-    pickle.dump(posteriors, f)
-
-with open(f'{outdir}/injections.pkl', 'wb') as f:
-    pickle.dump(injections, f)
-
 # We are considering the default Gaussian_Isotropic_Cut spin model from Stegmann et al. (2025)
-
-if which_model == 'noah':
-    from models import log_stegmann_spin
 
 ################## IMPORTANT SETTINGS ##################
 
@@ -95,96 +92,105 @@ nlive = 100
 
 ########################################################
 
-# Define custom spin model
-def spin_model(dataset, mu_1, sigma_1, mu_tilt_1, sigma_tilt_1, 
-               mu_2, sigma_2, mu_3, sigma_3,
-               weight_a, m_cut):
-    
-    # Unpack variables from dataset
-    a_1 = dataset["a_1"]
-    a_2 = dataset["a_2"]
-    cos_tilt_1 = dataset["cos_tilt_1"]
-    cos_tilt_2 = dataset["cos_tilt_2"]
-    m_1 = dataset["mass_1"]
 
-    # STEGMANN model
-    if which_model == 'stegmann':
-        # Free Gaussian component
-        comp1 = gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0) * \
-                gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0) * \
-                gwpop.utils.truncnorm(cos_tilt_1, mu_tilt_1, sigma_tilt_1, 1, -1) * \
-                gwpop.utils.truncnorm(cos_tilt_2, mu_tilt_1, sigma_tilt_1, 1, -1)
+def get_model(model):
+    if model == 'default-spin-simple-power-law-mass':
+        from models import default_stegmann_spin_model
+        model_functions = [
+            gwpop.models.mass.two_component_primary_mass_ratio,
+            default_stegmann_spin_model,
+        ]
+    elif model == 'default-spin-bpl2p-mass':
+        from models import default_stegmann_spin_model
+        from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
 
-        # Isotropic component
-        comp2 = gwpop.utils.truncnorm(a_1, mu_2, sigma_2, 1, 0) * \
-                gwpop.utils.truncnorm(a_2, mu_2, sigma_2, 1, 0) * \
-                0.5 * 0.5 
-        
-        # High-mass isotropic component
-        comp3 = gwpop.utils.truncnorm(a_1, mu_3, sigma_3, 1, 0) * \
-                gwpop.utils.truncnorm(a_2, mu_3, sigma_3, 1, 0) * \
-                0.5 * 0.5 
-        
-        # Mass-dependent transition function
-        zeta = 1 / (1 + xp.exp(-m_1+m_cut))
-        
-        # Combine components with mass-dependent transition
-        return (1 - zeta) * (weight_a * comp1 + (1 - weight_a) * comp2) + zeta * comp3
-
-    # NOAH model
-    elif which_model == 'noah':
-        return xp.exp(log_stegmann_spin(
-            dataset, dict(
-                mu_chi=mu_1,
-                sigma_chi=sigma_1,
-                mu_chi_iso=mu_2,
-                sigma_chi_iso=sigma_2,
-                mu_chi_high_iso=mu_3,
-                sigma_chi_high_iso=sigma_3,
-                mu_spin=mu_tilt_1,
-                sigma_spin=sigma_tilt_1,
-                xi_spin=weight_a,
-                transition_mass=m_cut
+        def mass_model(
+            dataset,
+            alpha_1,
+            alpha_2,
+            mlow_1,
+            break_mass,
+            delta_m_1,
+            lam_0,
+            lam_1,
+            mpp_1,
+            sigpp_1,
+            mpp_2,
+            sigpp_2,
+        ):
+            lam_fractions = (
+                lam_0,
+                lam_1,
+                1 - lam_0 - lam_1
             )
-        ))
+            return xp.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+                dataset,
+                alpha_1,
+                alpha_2,
+                mlow_1,
+                break_mass,
+                delta_m_1,
+                lam_fractions,
+                mpp_1,
+                sigpp_1,
+                mpp_2,
+                sigpp_2,
+            ))
 
+        model_functions = [
+            mass_model,
+            default_stegmann_spin_model 
+        ]
+    elif model == 'twomass':
+        from models import twomass_and_spin_model
+        model_functions = [twomass_and_spin_model]
+    elif model == 'threemass':
+        from models import threemass_and_spin_model
+        model_functions = [threemass_and_spin_model]
     else:
-        raise ValueError(f'bad model {which_model}')
+        raise ValueError(f'bad model {model}')
 
-# Define the full population model, combining mass, spin, and redshift models
-model = Model(
-    model_functions=[
-        gwpop.models.mass.two_component_primary_mass_ratio,
-        spin_model,
-        gwpop.models.redshift.PowerLawRedshift(cosmo_model="Planck15"),
-    ],
-    cache=False,
+    model_functions += [
+        gwpop.models.redshift.PowerLawRedshift(cosmo_model="Planck15")
+    ]
+
+    return Model(
+        model_functions=model_functions,
+        cache=False,
+    )
+
+vt = gwpop.vt.ResamplingVT(
+    model=get_model(model),
+    data=injections,
+    n_events=len(posteriors)
 )
-
-vt = gwpop.vt.ResamplingVT(model=model, data=injections, n_events=len(posteriors))
 
 # set random state for re-sampling the single-event PE
 np.random.seed(42)
 
 likelihood = gwpop.hyperpe.HyperparameterLikelihood(
     posteriors=posteriors,
-    hyper_prior=model,
+    hyper_prior=get_model(model),
     selection_function=vt,
     maximum_uncertainty=maximum_uncertainty,
 )
 
 # Define priors for hyperparameters
-priors = PriorDict()
 
 # mass
-priors["alpha"] = Uniform(minimum=-2, maximum=4, latex_label="$\\alpha$")
-priors["beta"] = Uniform(minimum=-4, maximum=12, latex_label="$\\beta$")
-priors["mmin"] = Uniform(minimum=2, maximum=2.5, latex_label="$m_{\\min}$")
-priors["mmax"] = Uniform(minimum=80, maximum=100, latex_label="$m_{\\max}$")
-priors["lam"] = Uniform(minimum=0, maximum=1, latex_label="$\\lambda_{m}$")
-priors["mpp"] = Uniform(minimum=10, maximum=50, latex_label="$\\mu_{m}$")
-priors["sigpp"] = Uniform(minimum=1, maximum=10, latex_label="$\\sigma_{m}$")
-priors["gaussian_mass_maximum"] = 100
+if model == 'default-spin-simple-power-law-mass': 
+    priors = PriorDict()
+    priors["alpha"] = Uniform(minimum=-2, maximum=4, latex_label="$\\alpha$")
+    priors["beta"] = Uniform(minimum=-4, maximum=12, latex_label="$\\beta$")
+    priors["mmin"] = Uniform(minimum=2, maximum=2.5, latex_label="$m_{\\min}$")
+    priors["mmax"] = Uniform(minimum=80, maximum=100, latex_label="$m_{\\max}$")
+    priors["lam"] = Uniform(minimum=0, maximum=1, latex_label="$\\lambda_{m}$")
+    priors["mpp"] = Uniform(minimum=10, maximum=50, latex_label="$\\mu_{m}$")
+    priors["sigpp"] = Uniform(minimum=1, maximum=10, latex_label="$\\sigma_{m}$")
+    priors["gaussian_mass_maximum"] = 100
+else:
+    priors = ConditionalPriorDict(mass_prior)
+
 # spin
 priors["mu_1"] = Uniform(minimum=0, maximum=1, latex_label="$\\mu_1$")
 priors["sigma_1"] = Uniform(minimum=0.1, maximum=1, latex_label="$\\sigma_1$")
@@ -200,40 +206,10 @@ priors["m_cut"] = Uniform(minimum=10, maximum=100, latex_label="$m_{\\rm cut}$")
 # redshift
 priors["lamb"] = Uniform(minimum=-1, maximum=10, latex_label="$\\lambda_{z}$")
 
-# Test JittedLikelihood
-parameters = dict(
-    alpha=2.0,
-    beta=1.1,
-    mmin=2.25,
-    mmax=85.0,
-    lam=0.03,
-    mpp=34.0,
-    sigpp=3.4,
-    gaussian_mass_maximum=100.0,
-    mu_1=0.2,
-    sigma_1=0.5,
-    mu_2=0.2,
-    sigma_2=0.5,
-    mu_3=0.7,
-    sigma_3=0.3,
-    mu_tilt_1=0.15,
-    sigma_tilt_1=0.4,
-    weight_a=0.86,
-    m_cut=45.0,
-    lamb=2.73
-)
+priors.to_file(outdir, label)
 
-print('testing likelihood with parameters:')
-for k, v in parameters.items():
-    print(f'\t{k} : {v}')
-
-likelihood.log_likelihood_ratio(parameters)
 jit_likelihood = JittedLikelihood(likelihood)
-jit_likelihood.log_likelihood_ratio(parameters)
-print(
-    'log_likelihood:',
-    jit_likelihood.log_likelihood_ratio(parameters)
-)
+jit_likelihood.log_likelihood_ratio(priors.sample())
 
 # Run sampler
 result = bb.run_sampler(
@@ -241,10 +217,15 @@ result = bb.run_sampler(
     priors=priors,
     sampler="dynesty",
     nlive=nlive,
-    label='run',
+    label=label,
     sample="acceptance-walk",
     naccept=naccept,
     save="hdf5",
     outdir=outdir,
     seed=sampling_seed
 )
+result.plot_corner()
+
+# TODO: compute extras
+
+# TODO: make ppds

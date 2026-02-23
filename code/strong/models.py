@@ -394,3 +394,348 @@ def log_threemass_stegmann_spin(dataset, parameters):
 
     log_prob = jnp.logaddexp(gauss, iso_low_mass)
     return jnp.logaddexp(log_prob, iso_high_mass)
+
+
+### gwpop-style implementations
+def stegmann_spin_components(
+    dataset,
+    mu_1,
+    sigma_1,
+    mu_tilt_1,
+    sigma_tilt_1, 
+    mu_2,
+    sigma_2,
+    mu_3,
+    sigma_3,
+    m_cut
+):
+    """
+    See `spin_model` in https://github.com/stegmaja/black-hole-spin-orbit-tilts/blob/main/main.ipynb
+    """
+    # Unpack variables from dataset
+    a_1 = dataset["a_1"]
+    a_2 = dataset["a_2"]
+    cos_tilt_1 = dataset["cos_tilt_1"]
+    cos_tilt_2 = dataset["cos_tilt_2"]
+    m_1 = dataset["mass_1"]
+
+    # Free Gaussian component
+    comp1 = gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0) * \
+            gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0) * \
+            gwpop.utils.truncnorm(cos_tilt_1, mu_tilt_1, sigma_tilt_1, 1, -1) * \
+            gwpop.utils.truncnorm(cos_tilt_2, mu_tilt_1, sigma_tilt_1, 1, -1)
+
+    # Isotropic component
+    comp2 = gwpop.utils.truncnorm(a_1, mu_2, sigma_2, 1, 0) * \
+            gwpop.utils.truncnorm(a_2, mu_2, sigma_2, 1, 0) * \
+            0.5 * 0.5 
+
+    # High-mass isotropic component
+    comp3 = gwpop.utils.truncnorm(a_1, mu_3, sigma_3, 1, 0) * \
+            gwpop.utils.truncnorm(a_2, mu_3, sigma_3, 1, 0) * \
+            0.5 * 0.5 
+
+    # Mass-dependent transition function
+    zeta = 1 / (1 + jnp.exp(-m_1+m_cut))
+    
+    # Combine components with mass-dependent transition
+    return zeta, comp1, comp2, comp3
+
+
+def default_stegmann_spin_model(
+    dataset,
+    mu_1,
+    sigma_1,
+    mu_tilt_1,
+    sigma_tilt_1, 
+    mu_2,
+    sigma_2,
+    mu_3,
+    sigma_3,
+    weight_a,
+    m_cut
+):
+    import gwpopulation as gwpop
+    """
+    See `spin_model` in https://github.com/stegmaja/black-hole-spin-orbit-tilts/blob/main/main.ipynb
+    """
+
+    zeta, comp1, comp2, comp3 = stegmann_spin_components(
+        mu_1,
+        sigma_1,
+        mu_tilt_1,
+        sigma_tilt_1, 
+        mu_2,
+        sigma_2,
+        mu_3,
+        sigma_3,
+        m_cut 
+    )
+    
+    # Combine components with mass-dependent transition
+    return (1 - zeta) * (weight_a * comp1 + (1 - weight_a) * comp2) + zeta * comp3
+
+
+def twomass_and_spin_model(
+    dataset,
+    mu_1,
+    sigma_1,
+    mu_tilt_1,
+    sigma_tilt_1, 
+    mu_2,
+    sigma_2,
+    mu_3,
+    sigma_3,
+    weight_a,
+    m_cut,
+    alpha_1,
+    alpha_2,
+    mlow_1,
+    break_mass,
+    delta_m_1,
+    lam_0,
+    lam_1,
+    mpp_1,
+    sigpp_1,
+    mpp_2,
+    sigpp_2,
+    alpha_1_iso,
+    alpha_2_iso,
+    mlow_1_iso,
+    break_mass_iso,
+    delta_m_1_iso,
+    lam_0_iso,
+    lam_1_iso,
+    mpp_1_iso,
+    sigpp_1_iso,
+    mpp_2_iso,
+    sigpp_2_iso,
+):
+    """
+    Based on `spin_model` in https://github.com/stegmaja/black-hole-spin-orbit-tilts/blob/main/main.ipynb
+    """
+    import gwpopulation as gwpop
+
+    # Unpack variables from dataset
+    a_1 = dataset["a_1"]
+    a_2 = dataset["a_2"]
+    cos_tilt_1 = dataset["cos_tilt_1"]
+    cos_tilt_2 = dataset["cos_tilt_2"]
+    m_1 = dataset["mass_1"]
+
+    # Free Gaussian component
+    comp1 = gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0) * \
+            gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0) * \
+            gwpop.utils.truncnorm(cos_tilt_1, mu_tilt_1, sigma_tilt_1, 1, -1) * \
+            gwpop.utils.truncnorm(cos_tilt_2, mu_tilt_1, sigma_tilt_1, 1, -1)
+
+    # Isotropic component
+    comp2 = gwpop.utils.truncnorm(a_1, mu_2, sigma_2, 1, 0) * \
+            gwpop.utils.truncnorm(a_2, mu_2, sigma_2, 1, 0) * \
+            0.5 * 0.5 
+
+    # High-mass isotropic component
+    comp3 = gwpop.utils.truncnorm(a_1, mu_3, sigma_3, 1, 0) * \
+            gwpop.utils.truncnorm(a_2, mu_3, sigma_3, 1, 0) * \
+            0.5 * 0.5 
+
+    # Mass-dependent transition function
+    zeta = 1 / (1 + jnp.exp(-m_1+m_cut))
+
+    # mass models for some components
+    lam_fractions = (
+        lam_0,
+        lam_1,
+        1 - lam_0 - lam_1
+    )
+    mass_comp1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+        dataset,
+        alpha_1,
+        alpha_2,
+        mlow_1,
+        break_mass,
+        delta_m_1,
+        lam_fractions,
+        mpp_1,
+        sigpp_1,
+        mpp_2,
+        sigpp_2,
+    )
+    mass_comp1 = jnp.exp(mass_comp1)
+
+    lam_fractions_iso = (
+        lam_0_iso,
+        lam_1_iso,
+        1 - lam_0_iso - lam_1_iso
+    )
+    mass_comp2 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+        dataset,
+        alpha_1_iso,
+        alpha_2_iso,
+        mlow_1_iso,
+        break_mass_iso,
+        delta_m_1_iso,
+        lam_fractions_iso,
+        mpp_1_iso,
+        sigpp_1_iso,
+        mpp_2_iso,
+        sigpp_2_iso,
+    )
+    mass_comp2 = jnp.exp(mass_comp2)
+
+    # Combine components with mass-dependent transition
+    return (
+        (1 - zeta) * (
+            weight_a * comp1 * mass_comp1
+            + (1 - weight_a) * comp2 * mass_comp2
+        )
+        + zeta * comp3 * mass_comp2
+    )
+
+
+def threemass_and_spin_model(
+    dataset,
+    mu_1,
+    sigma_1,
+    mu_tilt_1,
+    sigma_tilt_1, 
+    mu_2,
+    sigma_2,
+    mu_3,
+    sigma_3,
+    weight_a,
+    m_cut,
+    alpha_1,
+    alpha_2,
+    mlow_1,
+    break_mass,
+    delta_m_1,
+    lam_0,
+    lam_1,
+    mpp_1,
+    sigpp_1,
+    mpp_2,
+    sigpp_2,
+    alpha_1_iso,
+    alpha_2_iso,
+    mlow_1_iso,
+    break_mass_iso,
+    delta_m_1_iso,
+    lam_0_iso,
+    lam_1_iso,
+    mpp_1_iso,
+    sigpp_1_iso,
+    mpp_2_iso,
+    sigpp_2_iso,
+    alpha_1_high_iso,
+    alpha_2_high_iso,
+    mlow_1_high_iso,
+    break_mass_high_iso,
+    delta_m_1_high_iso,
+    lam_0_high_iso,
+    lam_1_high_iso,
+    mpp_1_high_iso,
+    sigpp_1_high_iso,
+    mpp_2_high_iso,
+    sigpp_2_high_iso,
+):
+    """
+    Based on `spin_model` in https://github.com/stegmaja/black-hole-spin-orbit-tilts/blob/main/main.ipynb
+    """
+    import gwpopulation as gwpop
+
+    # Unpack variables from dataset
+    a_1 = dataset["a_1"]
+    a_2 = dataset["a_2"]
+    cos_tilt_1 = dataset["cos_tilt_1"]
+    cos_tilt_2 = dataset["cos_tilt_2"]
+    m_1 = dataset["mass_1"]
+
+    # Free Gaussian component
+    comp1 = gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0) * \
+            gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0) * \
+            gwpop.utils.truncnorm(cos_tilt_1, mu_tilt_1, sigma_tilt_1, 1, -1) * \
+            gwpop.utils.truncnorm(cos_tilt_2, mu_tilt_1, sigma_tilt_1, 1, -1)
+
+    # Isotropic component
+    comp2 = gwpop.utils.truncnorm(a_1, mu_2, sigma_2, 1, 0) * \
+            gwpop.utils.truncnorm(a_2, mu_2, sigma_2, 1, 0) * \
+            0.5 * 0.5 
+
+    # High-mass isotropic component
+    comp3 = gwpop.utils.truncnorm(a_1, mu_3, sigma_3, 1, 0) * \
+            gwpop.utils.truncnorm(a_2, mu_3, sigma_3, 1, 0) * \
+            0.5 * 0.5 
+
+    # Mass-dependent transition function
+    zeta = 1 / (1 + jnp.exp(-m_1+m_cut))
+
+    # mass models for some components
+    lam_fractions = (
+        lam_0,
+        lam_1,
+        1 - lam_0 - lam_1
+    )
+    mass_comp1 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+        dataset,
+        alpha_1,
+        alpha_2,
+        mlow_1,
+        break_mass,
+        delta_m_1,
+        lam_fractions,
+        mpp_1,
+        sigpp_1,
+        mpp_2,
+        sigpp_2,
+    )
+    mass_comp1 = jnp.exp(mass_comp1)
+
+    lam_fractions_iso = (
+        lam_0_iso,
+        lam_1_iso,
+        1 - lam_0_iso - lam_1_iso
+    )
+    mass_comp2 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+        dataset,
+        alpha_1_iso,
+        alpha_2_iso,
+        mlow_1_iso,
+        break_mass_iso,
+        delta_m_1_iso,
+        lam_fractions_iso,
+        mpp_1_iso,
+        sigpp_1_iso,
+        mpp_2_iso,
+        sigpp_2_iso,
+    ) 
+    mass_comp2 = jnp.exp(mass_comp2)
+
+    lam_fractions_high_iso = (
+        lam_0_high_iso,
+        lam_1_high_iso,
+        1 - lam_0_high_iso - lam_1_high_iso
+    )
+    mass_comp3 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+        dataset,
+        alpha_1_high_iso,
+        alpha_2_high_iso,
+        mlow_1_high_iso,
+        break_mass_high_iso,
+        delta_m_1_high_iso,
+        lam_fractions_high_iso,
+        mpp_1_high_iso,
+        sigpp_1_high_iso,
+        mpp_2_high_iso,
+        sigpp_2_high_iso,
+    )
+    mass_comp3 = jnp.exp(mass_comp3)
+
+    # Combine components with mass-dependent transition
+    return (
+        (1 - zeta) * (
+            weight_a * comp1 * mass_comp1
+            + (1 - weight_a) * comp2 * mass_comp2
+        )
+        + zeta * comp3 * mass_comp3
+    )
