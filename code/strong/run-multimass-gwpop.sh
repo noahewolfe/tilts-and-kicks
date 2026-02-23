@@ -15,4 +15,4 @@ $HOME/.conda/envs/just-for-kicks/bin/python -u multimass-gwpop.py \
     --which-data $data \
     --model $model \
     --maximum-uncertainty $var \
-    > $outdir/log.out 2> $outdir/log.err
+    #> $outdir/log.out 2> $outdir/log.err

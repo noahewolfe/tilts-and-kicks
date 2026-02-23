@@ -409,6 +409,7 @@ def stegmann_spin_components(
     sigma_3,
     m_cut
 ):
+    import gwpopulation as gwpop
     """
     See `spin_model` in https://github.com/stegmaja/black-hole-spin-orbit-tilts/blob/main/main.ipynb
     """
