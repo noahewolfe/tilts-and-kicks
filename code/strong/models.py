@@ -461,6 +461,7 @@ def default_stegmann_spin_model(
     """
 
     zeta, comp1, comp2, comp3 = stegmann_spin_components(
+        dataset,
         mu_1,
         sigma_1,
         mu_tilt_1,
