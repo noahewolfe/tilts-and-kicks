@@ -277,7 +277,7 @@ def components_and_weights(parameters):
 
     mm = xp.linspace(3, 300, 500)
     dataset = dict(mass_1=mm)
-    zeta = jax.scipy.special.expit(m_cut - mm)
+    zeta = jax.scipy.special.expit(mm - m_cut)
 
     weight = (1 - zeta) * weight_a
     weight_iso = (1 - zeta) * (1 - weight_a)
