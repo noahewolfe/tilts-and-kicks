@@ -5,7 +5,7 @@ export JAX_ENABLE_X64=1
 
 data="stegmann"
 var=1
-sample="fast"
+sample="robust"
 
 ###
 
@@ -50,7 +50,7 @@ $HOME/.conda/envs/just-for-kicks/bin/python -u multimass-gwpop.py \
     --which-data $data \
     --model $model \
     --maximum-uncertainty $var \
-    --sample-settings $sample \
+    --sampler-settings $sample \
     --priors ./priors/twomass-only-mass.prior \
     > $outdir/log.out 2> $outdir/log.err
 

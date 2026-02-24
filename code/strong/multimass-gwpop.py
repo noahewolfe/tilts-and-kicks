@@ -256,7 +256,7 @@ result = bb.run_sampler(
     nlive=nlive,
     save="hdf5",
     outdir=outdir,
-    seed=sampling_seed
+    seed=sampling_seed,
     **sampler_kwargs
 )
 result.plot_corner()
