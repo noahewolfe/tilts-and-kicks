@@ -439,8 +439,8 @@ def stegmann_spin_components(
             0.5 * 0.5 
 
     # Mass-dependent transition function
-    zeta = 1 / (1 + jnp.exp(-m_1+m_cut))
-    
+    zeta = jax.scipy.special.expit(m_cut - m_1)   
+ 
     # Combine components with mass-dependent transition
     return zeta, comp1, comp2, comp3
 
