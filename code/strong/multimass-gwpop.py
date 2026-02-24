@@ -523,3 +523,4 @@ for param in ['cos_tilt']:
 
     fig.savefig(f'{outdir}/ppds/{param}.png')
 
+print('done.')
