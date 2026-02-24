@@ -26,6 +26,9 @@ import h5ify
 from util import scan
 from util import write_config
 
+from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
+
 label = 'run'
 
 parser = ArgumentParser()
@@ -98,6 +101,7 @@ if maximum_uncertainty == 'inf':
 else:
     maximum_uncertainty = int(maximum_uncertainty)
 print(f'using variance cut : {maximum_uncertainty}')
+
 naccept = 5
 nlive = 100
 
@@ -119,9 +123,6 @@ def bpl2p_m1q(
     sigpp_2,
     beta
 ):
-    from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
-    from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
-
     lam_fractions = (
         lam_0,
         lam_1,
@@ -276,7 +277,7 @@ def components_and_weights(parameters):
     if model == 'default-spin-simple-power-law-mass':
         from gwpopulation.models.mass import two_component_single
         p_m1 = two_component_single(
-            dataset["mass_1"],
+            dataset['mass_1'],
             alpha=parameters['alpha'],
             mmin=parameters['mmin'],
             mmax=parameters['mmax'],
@@ -290,8 +291,6 @@ def components_and_weights(parameters):
         p_m1_comp2 = p_m1
         p_m1_comp3 = p_m1
     elif model == 'default-spin-bpl2p-mass':
-        from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
-
         lam_fractions = (
             parameters['lam_0'],
             parameters['lam_1'],
