@@ -397,6 +397,8 @@ def log_threemass_stegmann_spin(dataset, parameters):
 
 
 ### gwpop-style implementations
+
+
 def stegmann_spin_components(
     dataset,
     mu_1,
@@ -501,48 +503,36 @@ def twomass_and_spin_model(
     sigpp_1,
     mpp_2,
     sigpp_2,
+    beta,
     alpha_1_iso,
     alpha_2_iso,
     mlow_1_iso,
     break_mass_iso,
     delta_m_1_iso,
-    lam_0_iso,
-    lam_1_iso,
+    lam_iso_0,
+    lam_iso_1,
     mpp_1_iso,
     sigpp_1_iso,
     mpp_2_iso,
     sigpp_2_iso,
+    beta_iso
 ):
     """
     Based on `spin_model` in https://github.com/stegmaja/black-hole-spin-orbit-tilts/blob/main/main.ipynb
     """
-    import gwpopulation as gwpop
-
-    # Unpack variables from dataset
-    a_1 = dataset["a_1"]
-    a_2 = dataset["a_2"]
-    cos_tilt_1 = dataset["cos_tilt_1"]
-    cos_tilt_2 = dataset["cos_tilt_2"]
-    m_1 = dataset["mass_1"]
-
-    # Free Gaussian component
-    comp1 = gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0) * \
-            gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0) * \
-            gwpop.utils.truncnorm(cos_tilt_1, mu_tilt_1, sigma_tilt_1, 1, -1) * \
-            gwpop.utils.truncnorm(cos_tilt_2, mu_tilt_1, sigma_tilt_1, 1, -1)
-
-    # Isotropic component
-    comp2 = gwpop.utils.truncnorm(a_1, mu_2, sigma_2, 1, 0) * \
-            gwpop.utils.truncnorm(a_2, mu_2, sigma_2, 1, 0) * \
-            0.5 * 0.5 
-
-    # High-mass isotropic component
-    comp3 = gwpop.utils.truncnorm(a_1, mu_3, sigma_3, 1, 0) * \
-            gwpop.utils.truncnorm(a_2, mu_3, sigma_3, 1, 0) * \
-            0.5 * 0.5 
-
-    # Mass-dependent transition function
-    zeta = 1 / (1 + jnp.exp(-m_1+m_cut))
+    from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+    zeta, comp1, comp2, comp3 = stegmann_spin_components(
+        dataset,
+        mu_1,
+        sigma_1,
+        mu_tilt_1,
+        sigma_tilt_1, 
+        mu_2,
+        sigma_2,
+        mu_3,
+        sigma_3,
+        m_cut 
+    )
 
     # mass models for some components
     lam_fractions = (
@@ -565,10 +555,18 @@ def twomass_and_spin_model(
     )
     mass_comp1 = jnp.exp(mass_comp1)
 
+    q_comp1 = PowerlawPlusPeak_MassRatio(
+        dataset,
+        slope=beta,
+        minimum=mlow_1,
+        delta_m=delta_m_1
+    )
+    q_comp1 = jnp.exp(q_comp1)
+
     lam_fractions_iso = (
-        lam_0_iso,
-        lam_1_iso,
-        1 - lam_0_iso - lam_1_iso
+        lam_iso_0,
+        lam_iso_1,
+        1 - lam_iso_0 - lam_iso_1
     )
     mass_comp2 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
         dataset,
@@ -585,13 +583,21 @@ def twomass_and_spin_model(
     )
     mass_comp2 = jnp.exp(mass_comp2)
 
+    q_comp2 = PowerlawPlusPeak_MassRatio(
+        dataset,
+        slope=beta_iso,
+        minimum=mlow_1_iso,
+        delta_m=delta_m_1_iso
+    )
+    q_comp2 = jnp.exp(q_comp2)
+
     # Combine components with mass-dependent transition
     return (
         (1 - zeta) * (
-            weight_a * comp1 * mass_comp1
-            + (1 - weight_a) * comp2 * mass_comp2
+            weight_a * comp1 * mass_comp1 * q_comp1
+            + (1 - weight_a) * comp2 * mass_comp2 * q_comp2
         )
-        + zeta * comp3 * mass_comp2
+        + zeta * comp3 * mass_comp2 * q_comp2
     )
 
 
@@ -618,59 +624,49 @@ def threemass_and_spin_model(
     sigpp_1,
     mpp_2,
     sigpp_2,
+    beta,
     alpha_1_iso,
     alpha_2_iso,
     mlow_1_iso,
     break_mass_iso,
     delta_m_1_iso,
-    lam_0_iso,
-    lam_1_iso,
+    lam_iso_0,
+    lam_iso_1,
     mpp_1_iso,
     sigpp_1_iso,
     mpp_2_iso,
     sigpp_2_iso,
+    beta_iso,
     alpha_1_high_iso,
     alpha_2_high_iso,
     mlow_1_high_iso,
     break_mass_high_iso,
     delta_m_1_high_iso,
-    lam_0_high_iso,
-    lam_1_high_iso,
+    lam_high_iso_0,
+    lam_high_iso_1,
     mpp_1_high_iso,
     sigpp_1_high_iso,
     mpp_2_high_iso,
     sigpp_2_high_iso,
+    beta_high_iso
 ):
     """
     Based on `spin_model` in https://github.com/stegmaja/black-hole-spin-orbit-tilts/blob/main/main.ipynb
     """
-    import gwpopulation as gwpop
+    from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
 
-    # Unpack variables from dataset
-    a_1 = dataset["a_1"]
-    a_2 = dataset["a_2"]
-    cos_tilt_1 = dataset["cos_tilt_1"]
-    cos_tilt_2 = dataset["cos_tilt_2"]
-    m_1 = dataset["mass_1"]
-
-    # Free Gaussian component
-    comp1 = gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0) * \
-            gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0) * \
-            gwpop.utils.truncnorm(cos_tilt_1, mu_tilt_1, sigma_tilt_1, 1, -1) * \
-            gwpop.utils.truncnorm(cos_tilt_2, mu_tilt_1, sigma_tilt_1, 1, -1)
-
-    # Isotropic component
-    comp2 = gwpop.utils.truncnorm(a_1, mu_2, sigma_2, 1, 0) * \
-            gwpop.utils.truncnorm(a_2, mu_2, sigma_2, 1, 0) * \
-            0.5 * 0.5 
-
-    # High-mass isotropic component
-    comp3 = gwpop.utils.truncnorm(a_1, mu_3, sigma_3, 1, 0) * \
-            gwpop.utils.truncnorm(a_2, mu_3, sigma_3, 1, 0) * \
-            0.5 * 0.5 
-
-    # Mass-dependent transition function
-    zeta = 1 / (1 + jnp.exp(-m_1+m_cut))
+    zeta, comp1, comp2, comp3 = stegmann_spin_components(
+        dataset,
+        mu_1,
+        sigma_1,
+        mu_tilt_1,
+        sigma_tilt_1, 
+        mu_2,
+        sigma_2,
+        mu_3,
+        sigma_3,
+        m_cut
+    )
 
     # mass models for some components
     lam_fractions = (
@@ -693,10 +689,18 @@ def threemass_and_spin_model(
     )
     mass_comp1 = jnp.exp(mass_comp1)
 
+    q_comp1 = PowerlawPlusPeak_MassRatio(
+        dataset,
+        slope=beta,
+        minimum=mlow_1,
+        delta_m=delta_m_1
+    )
+    q_comp1 = jnp.exp(q_comp1)
+
     lam_fractions_iso = (
-        lam_0_iso,
-        lam_1_iso,
-        1 - lam_0_iso - lam_1_iso
+        lam_iso_0,
+        lam_iso_1,
+        1 - lam_iso_0 - lam_iso_1
     )
     mass_comp2 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
         dataset,
@@ -713,10 +717,18 @@ def threemass_and_spin_model(
     ) 
     mass_comp2 = jnp.exp(mass_comp2)
 
+    q_comp2 = PowerlawPlusPeak_MassRatio(
+        dataset,
+        slope=beta_iso,
+        minimum=mlow_1_iso,
+        delta_m=delta_m_1_iso
+    )
+    q_comp2 = jnp.exp(q_comp2)
+
     lam_fractions_high_iso = (
-        lam_0_high_iso,
-        lam_1_high_iso,
-        1 - lam_0_high_iso - lam_1_high_iso
+        lam_high_iso_0,
+        lam_high_iso_1,
+        1 - lam_high_iso_0 - lam_high_iso_1
     )
     mass_comp3 = BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
         dataset,
@@ -733,11 +745,19 @@ def threemass_and_spin_model(
     )
     mass_comp3 = jnp.exp(mass_comp3)
 
+    q_comp3 = PowerlawPlusPeak_MassRatio(
+        dataset,
+        slope=beta_high_iso,
+        minimum=mlow_1_high_iso,
+        delta_m=delta_m_1_high_iso
+    )
+    q_comp3 = jnp.exp(q_comp3)
+
     # Combine components with mass-dependent transition
     return (
         (1 - zeta) * (
-            weight_a * comp1 * mass_comp1
-            + (1 - weight_a) * comp2 * mass_comp2
+            weight_a * comp1 * mass_comp1 * q_comp1
+            + (1 - weight_a) * comp2 * mass_comp2 * q_comp2
         )
-        + zeta * comp3 * mass_comp3
+        + zeta * comp3 * mass_comp3 * q_comp3
     )

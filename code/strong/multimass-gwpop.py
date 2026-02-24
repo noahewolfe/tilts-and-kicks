@@ -9,14 +9,21 @@ import matplotlib.pyplot as plt
 
 import bilby as bb
 from bilby.hyper.model import Model
-from bilby.core.prior import PriorDict, Uniform, TruncatedNormal
+from bilby.core.prior import PriorDict
+from bilby.core.prior import ConditionalPriorDict
+from bilby.core.prior import Uniform
+from bilby.core.prior import TruncatedNormal
 
 import gwpopulation as gwpop
 from gwpopulation.experimental.jax import JittedLikelihood
 gwpop.set_backend("jax")
 
+# TODO: cleanup
 xp = gwpop.utils.xp
+import jax.numpy as jnp
 
+import h5ify
+from util import scan
 from util import write_config
 
 label = 'run'
@@ -27,28 +34,32 @@ parser.add_argument('--which-data', type=str, required=True)
 parser.add_argument('--model', type=str, required=True)
 parser.add_argument('--sampling-seed', type=int, default=1701)
 parser.add_argument('--maximum-uncertainty', required=True)
-parser.add_argument('--mass-prior', type=str)
+parser.add_argument('--priors', type=str)
 
 args = parser.parse_args()
 write_config(args)
 outdir = args.outdir
+os.makedirs(f'{outdir}/ppds', exist_ok=True)
+
 which_data = args.which_data
 model = args.model
 
 if model != 'default-spin-simple-power-law-mass':
-    mass_prior = args.mass_prior
+    priors = args.priors
 
 sampling_seed = args.sampling_seed
 maximum_uncertainty = args.maximum_uncertainty
 
 # stegmann data
 if which_data == 'stegmann':
+    print('Using stegmann data')
     datadir = '../../data/stegmann'
     posteriors = pd.read_pickle(f"{datadir}/gwtc4_posteriors.pkl")
     injections = pd.read_pickle(f"{datadir}/gwtc4_injections_dict.pkl")
 
 ### load noah data
 elif which_data == 'noah':
+    print('Using noah data')
     from data import get_data
     _, posteriors, injections = get_data(
         snr_thresh=10,
@@ -93,6 +104,54 @@ nlive = 100
 ########################################################
 
 
+def bpl2p_m1q(
+    dataset,
+    alpha_1,
+    alpha_2,
+    mlow_1,
+    break_mass,
+    delta_m_1,
+    lam_0,
+    lam_1,
+    mpp_1,
+    sigpp_1,
+    mpp_2,
+    sigpp_2,
+    beta
+):
+    from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+    from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
+
+    lam_fractions = (
+        lam_0,
+        lam_1,
+        1 - lam_0 - lam_1
+    )
+
+    p_m1 = xp.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+        dataset,
+        alpha_1,
+        alpha_2,
+        mlow_1,
+        break_mass,
+        delta_m_1,
+        lam_fractions,
+        mpp_1,
+        sigpp_1,
+        mpp_2,
+        sigpp_2,
+    ))
+
+    p_q = xp.exp(PowerlawPlusPeak_MassRatio(
+        dataset,
+        slope=beta,
+        minimum=mlow_1,
+        delta_m=delta_m_1
+    ))
+
+    return p_m1 * p_q
+
+
 def get_model(model):
     if model == 'default-spin-simple-power-law-mass':
         from models import default_stegmann_spin_model
@@ -102,43 +161,8 @@ def get_model(model):
         ]
     elif model == 'default-spin-bpl2p-mass':
         from models import default_stegmann_spin_model
-        from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
-
-        def mass_model(
-            dataset,
-            alpha_1,
-            alpha_2,
-            mlow_1,
-            break_mass,
-            delta_m_1,
-            lam_0,
-            lam_1,
-            mpp_1,
-            sigpp_1,
-            mpp_2,
-            sigpp_2,
-        ):
-            lam_fractions = (
-                lam_0,
-                lam_1,
-                1 - lam_0 - lam_1
-            )
-            return xp.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
-                dataset,
-                alpha_1,
-                alpha_2,
-                mlow_1,
-                break_mass,
-                delta_m_1,
-                lam_fractions,
-                mpp_1,
-                sigpp_1,
-                mpp_2,
-                sigpp_2,
-            ))
-
         model_functions = [
-            mass_model,
+            bpl2p_m1q,
             default_stegmann_spin_model 
         ]
     elif model == 'twomass':
@@ -158,6 +182,7 @@ def get_model(model):
         model_functions=model_functions,
         cache=False,
     )
+
 
 vt = gwpop.vt.ResamplingVT(
     model=get_model(model),
@@ -189,7 +214,7 @@ if model == 'default-spin-simple-power-law-mass':
     priors["sigpp"] = Uniform(minimum=1, maximum=10, latex_label="$\\sigma_{m}$")
     priors["gaussian_mass_maximum"] = 100
 else:
-    priors = ConditionalPriorDict(mass_prior)
+    priors = ConditionalPriorDict(priors)
 
 # spin
 priors["mu_1"] = Uniform(minimum=0, maximum=1, latex_label="$\\mu_1$")
@@ -226,6 +251,275 @@ result = bb.run_sampler(
 )
 result.plot_corner()
 
-# TODO: compute extras
+def components_and_weights(parameters):
+    m_cut = parameters['m_cut']
+    weight_a = parameters['weight_a']
 
-# TODO: make ppds
+    test_chi = xp.linspace(0, 1, 500)
+    test_tau = xp.linspace(-1, 1, 500)
+
+    # Free Gaussian component
+    chi = gwpop.utils.truncnorm(test_chi, parameters['mu_1'], parameters['sigma_1'], 1, 0)
+    chi_iso = gwpop.utils.truncnorm(test_chi, parameters['mu_2'], parameters['sigma_2'], 1, 0)
+    chi_high_iso = gwpop.utils.truncnorm(test_chi, parameters['mu_3'], parameters['sigma_3'], 1, 0)
+
+    cos_tilt = gwpop.utils.truncnorm(test_tau, parameters['mu_tilt_1'], parameters['sigma_tilt_1'], 1, -1)
+
+    mm = xp.linspace(3, 300, 500)
+    dataset = dict(mass_1=mm)
+    zeta = 1 / (1 + jnp.exp(-mm + m_cut))
+
+    weight = (1 - zeta) * weight_a
+    weight_iso = (1 - zeta) * (1 - weight_a)
+    weight_high_iso = zeta
+
+    if model == 'default-spin-simple-power-law-mass':
+        from gwpopulation.models.mass import two_component_single
+        p_m1 = two_component_single(
+            dataset["mass_1"],
+            alpha=parameters['alpha'],
+            mmin=parameters['mmin'],
+            mmax=parameters['mmax'],
+            lam=parameters['lam'],
+            mpp=parameters['mpp'],
+            sigpp=parameters['sigpp'],
+            gaussian_mass_maximum=parameters.get('gaussian_mass_maximum', 100),
+        )
+
+        p_m1_comp1 = p_m1
+        p_m1_comp2 = p_m1
+        p_m1_comp3 = p_m1
+    elif model == 'default-spin-bpl2p-mass':
+        from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
+
+        lam_fractions = (
+            parameters['lam_0'],
+            parameters['lam_1'],
+            1 - parameters['lam_0'] - parameters['lam_1']
+        )
+
+        p_m1 = xp.exp(
+            BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+                dataset,
+                parameters["alpha_1"],
+                parameters["alpha_2"],
+                parameters["mlow_1"],
+                parameters["break_mass"],
+                parameters["delta_m_1"],
+                lam_fractions,
+                parameters["mpp_1"],
+                parameters["sigpp_1"],
+                parameters["mpp_2"],
+                parameters["sigpp_2"],
+            )
+        )
+
+        p_m1_comp1 = p_m1
+        p_m1_comp2 = p_m1
+        p_m1_comp3 = p_m1
+    elif model == 'twomass':
+        lam_fractions = (
+            parameters['lam_0'],
+            parameters['lam_1'],
+            1 - parameters['lam_0'] - parameters['lam_1']
+        )
+
+        p_m1_comp1 = xp.exp(
+            BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+                dataset,
+                parameters["alpha_1"],
+                parameters["alpha_2"],
+                parameters["mlow_1"],
+                parameters["break_mass"],
+                parameters["delta_m_1"],
+                lam_fractions,
+                parameters["mpp_1"],
+                parameters["sigpp_1"],
+                parameters["mpp_2"],
+                parameters["sigpp_2"],
+            )
+        )
+
+        lam_fractions = (
+            parameters['lam_iso_0'],
+            parameters['lam_iso_1'],
+            1 - parameters['lam_iso_0'] - parameters['lam_iso_1']
+        )
+
+        p_m1_comp2 = xp.exp(
+            BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+                dataset,
+                parameters["alpha_1_iso"],
+                parameters["alpha_2_iso"],
+                parameters["mlow_1_iso"],
+                parameters["break_mass_iso"],
+                parameters["delta_m_1_iso"],
+                lam_fractions,
+                parameters["mpp_1_iso"],
+                parameters["sigpp_1_iso"],
+                parameters["mpp_2_iso"],
+                parameters["sigpp_2_iso"],
+            )
+        )
+
+        p_m1_comp3 = p_m1_comp2
+    elif model == 'threemass':
+        lam_fractions = (
+            parameters['lam_0'],
+            parameters['lam_1'],
+            1 - parameters['lam_0'] - parameters['lam_1']
+        )
+
+        p_m1_comp1 = xp.exp(
+            BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+                dataset,
+                parameters["alpha_1"],
+                parameters["alpha_2"],
+                parameters["mlow_1"],
+                parameters["break_mass"],
+                parameters["delta_m_1"],
+                lam_fractions,
+                parameters["mpp_1"],
+                parameters["sigpp_1"],
+                parameters["mpp_2"],
+                parameters["sigpp_2"],
+            )
+        )
+
+        lam_fractions = (
+            parameters['lam_iso_0'],
+            parameters['lam_iso_1'],
+            1 - parameters['lam_iso_0'] - parameters['lam_iso_1']
+        )
+
+        p_m1_comp2 = xp.exp(
+            BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+                dataset,
+                parameters["alpha_1_iso"],
+                parameters["alpha_2_iso"],
+                parameters["mlow_1_iso"],
+                parameters["break_mass_iso"],
+                parameters["delta_m_1_iso"],
+                lam_fractions,
+                parameters["mpp_1_iso"],
+                parameters["sigpp_1_iso"],
+                parameters["mpp_2_iso"],
+                parameters["sigpp_2_iso"],
+            )
+        )
+
+        lam_fractions = (
+            parameters['lam_high_iso_0'],
+            parameters['lam_high_iso_1'],
+            1 - parameters['lam_high_iso_0'] - parameters['lam_high_iso_1']
+        )
+
+        p_m1_comp3 = xp.exp(
+            BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+                dataset,
+                parameters["alpha_1_high_iso"],
+                parameters["alpha_2_high_iso"],
+                parameters["mlow_1_high_iso"],
+                parameters["break_mass_high_iso"],
+                parameters["delta_m_1_high_iso"],
+                lam_fractions,
+                parameters["mpp_1_high_iso"],
+                parameters["sigpp_1_high_iso"],
+                parameters["mpp_2_high_iso"],
+                parameters["sigpp_2_high_iso"],
+            )
+        )
+    else:
+        raise ValueError(f'bad model {model}')
+
+    weight = xp.trapezoid(
+        weight * p_m1_comp1,
+        mm
+    )
+
+    weight_iso = xp.trapezoid(
+        weight_iso * p_m1_comp2,
+        mm
+    )
+
+    weight_high_iso = xp.trapezoid(
+        weight_high_iso * p_m1_comp3,
+        mm
+    )
+
+    return dict(
+        zeta=zeta,
+        cos_tilt=cos_tilt,
+        chi=chi,
+        chi_iso=chi_iso,
+        chi_high_iso=chi_high_iso,
+        weight=weight,
+        weight_iso=weight_iso,
+        weight_high_iso=weight_high_iso,
+        mass_1=p_m1_comp1,
+        mass_1_iso=p_m1_comp2,
+        mass_1_high_iso=p_m1_comp3
+    )
+
+
+samples = result.posterior.to_dict('list')
+samples = {k : xp.array(v) for k, v in samples.items()}
+
+extras = scan(likelihood.generate_extra_statistics)(samples)
+extras['samples'] = samples
+h5ify.save(f'{outdir}/posterior.h5', extras, mode='w')
+
+cw = scan(components_and_weights)(samples)
+h5ify.save(f'{outdir}/components-and-weights.h5', cw, mode='w')
+
+# truncnorm component
+# TODO: fix `chi`
+for param in ['cos_tilt']:
+    fig, ax = plt.subplots()
+
+    if param == 'cos_tilt':
+        xs = jnp.linspace(-1, 1, 500)
+        ax.set_ylim(-0.1, 1.0)
+        ax.set_xlim(-1, 1)
+        ax.set_xlabel(r'$\cos \theta_{1,2}$')
+    elif param == 'chi':
+        xs = jnp.linspace(0, 1, 500)
+        ax.set_ylim(-0.1, 3.0)
+        ax.set_xlim(0, 1)
+        ax.set_xlabel(r'$\chi_{1,2}$') 
+
+    prob1 = cw[param] * cw['weight'][:, None]
+    med = jnp.median(prob1, axis=0)
+    q05 = jnp.quantile(prob1, 0.05, axis=0)
+    q95 = jnp.quantile(prob1, 0.95, axis=0)
+    ax.plot(xs, med, color=f'C0', label='truncnorm tilts')
+    ax.fill_between(xs, q05, q95, alpha=0.4, color=f'C0', lw=0)
+
+    # iso component
+    prob2 = 0.5 * jnp.ones_like(cw[param]) * cw['weight_iso'][:, None]
+    med = jnp.median(prob2, axis=0, )
+    q05 = jnp.quantile(prob2, 0.05, axis=0)
+    q95 = jnp.quantile(prob2, 0.95, axis=0)
+    ax.plot(xs, med, color=f'C1', label='Low-mass iso tilts')
+    ax.fill_between(xs, q05, q95, alpha=0.4, color=f'C1', lw=0)
+
+    # high-iso component
+    prob3 = 0.5 * jnp.ones_like(cw[param]) * cw['weight_high_iso'][:, None]
+    med = jnp.median(prob3, axis=0)
+    q05 = jnp.quantile(prob3, 0.05, axis=0)
+    q95 = jnp.quantile(prob3, 0.95, axis=0)
+    ax.plot(xs, med, color=f'C2', label='High-mass iso tilts')
+    ax.fill_between(xs, q05, q95, alpha=0.4, color=f'C2', lw=0)
+
+    prob = prob1 + prob2 + prob3
+    med = jnp.median(prob, axis=0, )
+    q05 = jnp.quantile(prob, 0.05, axis=0)
+    q95 = jnp.quantile(prob, 0.95, axis=0)
+    ax.plot(xs, med, color=f'C3', label='Weighted sum')
+    ax.fill_between(xs, q05, q95, alpha=0.4, color=f'C3', lw=0)
+
+    ax.axhline(y=0, lw=0.5, color='grey')
+    ax.legend()
+
+    fig.savefig(f'{outdir}/ppds/{param}.png')
+

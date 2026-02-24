@@ -5,14 +5,21 @@ export JAX_ENABLE_X64=1
 
 data="stegmann"
 model="default-spin-simple-power-law-mass"
-var="inf"
+#model="default-spin-bpl2p-mass"
+#model="threemass"
+var=1
 
 outdir="../../data/inference/strong/multimass/${data}/${model}-var-${var}"
 mkdir -p $outdir
+
+echo $outdir
 
 $HOME/.conda/envs/just-for-kicks/bin/python -u multimass-gwpop.py \
     --outdir $outdir \
     --which-data $data \
     --model $model \
     --maximum-uncertainty $var \
+    #--priors ./priors/threemass-only-mass.prior 
+    #--priors ./priors/twomass-only-mass.prior
+    #--priors ./priors/onemass-only-mass.prior
     #> $outdir/log.out 2> $outdir/log.err
