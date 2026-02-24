@@ -38,6 +38,8 @@ parser.add_argument('--model', type=str, required=True)
 parser.add_argument('--sampling-seed', type=int, default=1701)
 parser.add_argument('--maximum-uncertainty', required=True)
 parser.add_argument('--priors', type=str)
+parser.add_argument('--sampler-settings', type=str, default='fast')
+parser.add_argument('--nlive', type=int, default=100)
 
 args = parser.parse_args()
 write_config(args)
@@ -52,6 +54,8 @@ if model != 'default-spin-simple-power-law-mass':
 
 sampling_seed = args.sampling_seed
 maximum_uncertainty = args.maximum_uncertainty
+sampler_settings = args.sampler_settings
+nlive = args.nlive
 
 # stegmann data
 if which_data == 'stegmann':
@@ -102,8 +106,14 @@ else:
     maximum_uncertainty = int(maximum_uncertainty)
 print(f'using variance cut : {maximum_uncertainty}')
 
-naccept = 5
-nlive = 100
+if sampler_settings == 'fast':
+    sampler_kwargs = dict(
+        sample="acceptance-walk",
+        naccept=5,
+    )
+elif sampler_settings == 'robust':
+    # bilby dynesty defaults
+    sampler_kwargs = dict()
 
 ########################################################
 
@@ -242,13 +252,12 @@ result = bb.run_sampler(
     likelihood=jit_likelihood,
     priors=priors,
     sampler="dynesty",
-    nlive=nlive,
     label=label,
-    sample="acceptance-walk",
-    naccept=naccept,
+    nlive=nlive,
     save="hdf5",
     outdir=outdir,
     seed=sampling_seed
+    **sampler_kwargs
 )
 result.plot_corner()
 
