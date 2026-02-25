@@ -409,7 +409,8 @@ def stegmann_spin_components(
     sigma_2,
     mu_3,
     sigma_3,
-    m_cut
+    m_cut,
+    stable_expit=True
 ):
     import gwpopulation as gwpop
     """
@@ -439,7 +440,10 @@ def stegmann_spin_components(
             0.5 * 0.5 
 
     # Mass-dependent transition function
-    zeta = jax.scipy.special.expit(m_1 - m_cut)   
+    if stable_expit:
+        zeta = jax.scipy.special.expit(m_1 - m_cut)
+    else:
+        zeta = 1 / (1 + jnp.exp(-m_1 + m_cut))
  
     # Combine components with mass-dependent transition
     return zeta, comp1, comp2, comp3
@@ -456,7 +460,8 @@ def default_stegmann_spin_model(
     mu_3,
     sigma_3,
     weight_a,
-    m_cut
+    m_cut,
+    stable_expit=True
 ):
     import gwpopulation as gwpop
     """
@@ -473,8 +478,10 @@ def default_stegmann_spin_model(
         sigma_2,
         mu_3,
         sigma_3,
-        m_cut 
+        m_cut,
+        stable_expit=stable_expit
     )
+
     
     # Combine components with mass-dependent transition
     return (1 - zeta) * (weight_a * comp1 + (1 - weight_a) * comp2) + zeta * comp3

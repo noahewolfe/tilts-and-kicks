@@ -20,6 +20,7 @@ gwpop.set_backend("jax")
 
 # TODO: cleanup
 xp = gwpop.utils.xp
+import jax
 import jax.numpy as jnp
 
 import h5ify
@@ -40,6 +41,7 @@ parser.add_argument('--maximum-uncertainty', required=True)
 parser.add_argument('--priors', type=str)
 parser.add_argument('--sampler-settings', type=str, default='fast')
 parser.add_argument('--nlive', type=int, default=100)
+parser.add_argument('--stable-expit', action='store_true')
 
 args = parser.parse_args()
 write_config(args)
@@ -56,6 +58,7 @@ sampling_seed = args.sampling_seed
 maximum_uncertainty = args.maximum_uncertainty
 sampler_settings = args.sampler_settings
 nlive = args.nlive
+stable_expit = args.stable_expit
 
 # stegmann data
 if which_data == 'stegmann':
@@ -164,17 +167,45 @@ def bpl2p_m1q(
 
 
 def get_model(model):
+    from models import default_stegmann_spin_model
+
+    def spin_model(
+        dataset,
+        mu_1,
+        sigma_1,
+        mu_tilt_1,
+        sigma_tilt_1, 
+        mu_2,
+        sigma_2,
+        mu_3,
+        sigma_3,
+        weight_a,
+        m_cut,
+    ):
+        return default_stegmann_spin_model(
+            dataset,
+            mu_1,
+            sigma_1,
+            mu_tilt_1,
+            sigma_tilt_1, 
+            mu_2,
+            sigma_2,
+            mu_3,
+            sigma_3,
+            weight_a,
+            m_cut,
+            stable_expit=stable_expit
+        ) 
+
     if model == 'default-spin-simple-power-law-mass':
-        from models import default_stegmann_spin_model
         model_functions = [
             gwpop.models.mass.two_component_primary_mass_ratio,
-            default_stegmann_spin_model,
+            spin_model,
         ]
     elif model == 'default-spin-bpl2p-mass':
-        from models import default_stegmann_spin_model
         model_functions = [
             bpl2p_m1q,
-            default_stegmann_spin_model 
+            spin_model,
         ]
     elif model == 'twomass':
         from models import twomass_and_spin_model
@@ -277,7 +308,12 @@ def components_and_weights(parameters):
 
     mm = xp.linspace(3, 300, 500)
     dataset = dict(mass_1=mm)
-    zeta = jax.scipy.special.expit(mm - m_cut)
+
+    if stable_expit:
+        zeta = jax.scipy.special.expit(mm - m_cut)
+    else:
+        zeta = 1 / (1 + jnp.exp(-mm + m_cut))
+ 
 
     weight = (1 - zeta) * weight_a
     weight_iso = (1 - zeta) * (1 - weight_a)
