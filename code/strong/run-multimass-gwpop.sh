@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=0
 export JAX_ENABLE_X64=1
 
 data="stegmann"
@@ -24,3 +24,15 @@ $HOME/.conda/envs/just-for-kicks/bin/python -u multimass-gwpop.py \
     --nlive $nlive \
     --stable-expit \
     > $outdir/log.out 2> $outdir/log.err
+
+status=$?
+if command -v mail >/dev/null 2>&1; then
+  if [ $status -eq 0 ]; then
+    echo "SUCCESS: completed on $(hostname) at $(date)" \
+      | mail -s "multimass-gwpop ${model} SUCCESS" noah.wolfe@ligo.org
+  else
+    echo "FAIL ($status): on $(hostname) at $(date)" \
+      | mail -s "multimass-gwpop ${model} FAIL ($status)" noah.wolfe@ligo.org
+  fi
+fi
+exit $status
