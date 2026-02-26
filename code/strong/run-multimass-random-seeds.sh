@@ -3,7 +3,9 @@
 # trying multiple random sampling seeds to see if that changes
 # results with my dataset
 
-export CUDA_VISIBLE_DEVICES=3
+set -euox pipefail
+
+export CUDA_VISIBLE_DEVICES=1
 export JAX_ENABLE_X64=1
 
 
@@ -17,7 +19,7 @@ parentdir="../../data/inference/strong/multimass/${data}/seeds"
 
 ###
 
-for seed in $(seq 1702 1711)
+for seed in $(seq 1705 1712); do
     outdir="${parentdir}/${model}-var-${var}-seed${seed}"
     mkdir -p $outdir
 
@@ -30,3 +32,4 @@ for seed in $(seq 1702 1711)
         --nlive $nlive \
         --sampling-seed $seed \
         > $outdir/log.out 2> $outdir/log.err
+done

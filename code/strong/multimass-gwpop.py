@@ -25,6 +25,7 @@ import jax.numpy as jnp
 
 import h5ify
 from util import scan
+from util import plot_corner
 from util import write_config
 
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
@@ -240,6 +241,7 @@ likelihood = gwpop.hyperpe.HyperparameterLikelihood(
     hyper_prior=get_model(model),
     selection_function=vt,
     maximum_uncertainty=maximum_uncertainty,
+    outdir=outdir
 )
 
 # Define priors for hyperparameters
@@ -290,7 +292,10 @@ result = bb.run_sampler(
     seed=sampling_seed,
     **sampler_kwargs
 )
-result.plot_corner()
+
+# call here first, in case the later code fails
+# ---we want to get at least something!
+res.plot_corner()
 
 def components_and_weights(parameters):
     m_cut = parameters['m_cut']
@@ -512,6 +517,13 @@ samples = {k : xp.array(v) for k, v in samples.items()}
 extras = scan(likelihood.generate_extra_statistics)(samples)
 extras['samples'] = samples
 h5ify.save(f'{outdir}/posterior.h5', extras, mode='w')
+
+res.posterior['variance'] = extras['variance']
+
+if 'gaussian_mass_maximum' in res.posterior:
+    res.posterior.pop('gaussian_mass_maximum')
+
+res.plot_corner(parameters=list(res.posterior.keys()))
 
 cw = scan(components_and_weights)(samples)
 h5ify.save(f'{outdir}/components-and-weights.h5', cw, mode='w')

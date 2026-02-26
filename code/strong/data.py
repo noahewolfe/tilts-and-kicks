@@ -86,6 +86,9 @@ def _get_sample_set(f, prefer_xphm_gwtc3=False, prefer_xphm=False):
                     if 'XPHM' in k:
                         wvf = k
                         break
+
+            if prefer_xphm_gwtc3 and 'XPHM' not in k:
+                raise ValueError('Missing XPHM!')
         # O4a
         elif 'C00:NRSur7dq4' in f:
             wvf = 'C00:NRSur7dq4'
@@ -95,6 +98,7 @@ def _get_sample_set(f, prefer_xphm_gwtc3=False, prefer_xphm=False):
         else:
             assert len(keys) == 1
             wvf = keys[0]
+            print(f'No other keys found, using {wvf}')
 
     print('using sample set:', wvf)
 
@@ -118,7 +122,7 @@ def load_and_reduce_pe(path, pars, prefer_xphm_gwtc3, prefer_xphm=False):
     return posterior
 
 
-def resample_and_reshape_posteriors(posteriors, seed=1):
+def resample_and_reshape_positeriors(posteriors, seed=1):
     min_npe_samples = min([len(p['prior']) for p in posteriors])
     rng = np.random.default_rng(seed)
 
@@ -157,7 +161,8 @@ def get_posteriors(
     else:
         datapath = f'{datadir}/posteriors.h5'
 
-    print(f'data will be saved to/loaded from {datapath}')
+    if save or load:
+        print(f'data will be saved to/loaded from {datapath}')
 
     if load and os.path.exists(datapath):
         print(f'loading posteriors from {datapath}')
@@ -230,7 +235,7 @@ def get_posteriors(
             info = info.iloc[np.argmax(info['version'])]
             snrs.append(info['network_matched_filter_snr'])
             fars.append(info['far'])
-            cats.append('GWCT-4')
+            cats.append('GWTC-4')
 
     if catalog == 'GWTC-5':
         raise NotImplementedError()
