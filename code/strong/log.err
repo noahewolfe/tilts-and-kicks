@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "/home/noah.wolfe/projects/tilts-and-kicks/code/strong/inference.py", line 53, in <module>
-    outdir, priors, npri, maximum_variance, nlive = parse_args()
-                                                    ^^^^^^^^^^^^
-  File "/home/noah.wolfe/projects/tilts-and-kicks/code/strong/inference.py", line 47, in parse_args
-    os.makedirs(outdir, exist_ok=True)
-    ^^
-NameError: name 'os' is not defined
