@@ -295,7 +295,7 @@ result = bb.run_sampler(
 
 # call here first, in case the later code fails
 # ---we want to get at least something!
-res.plot_corner()
+result.plot_corner()
 
 def components_and_weights(parameters):
     m_cut = parameters['m_cut']
@@ -518,12 +518,12 @@ extras = scan(likelihood.generate_extra_statistics)(samples)
 extras['samples'] = samples
 h5ify.save(f'{outdir}/posterior.h5', extras, mode='w')
 
-res.posterior['variance'] = extras['variance']
+result.posterior['variance'] = extras['variance']
 
-if 'gaussian_mass_maximum' in res.posterior:
-    res.posterior.pop('gaussian_mass_maximum')
+if 'gaussian_mass_maximum' in result.posterior:
+    result.posterior.pop('gaussian_mass_maximum')
 
-res.plot_corner(parameters=list(res.posterior.keys()))
+result.plot_corner(parameters=list(result.posterior.keys()))
 
 cw = scan(components_and_weights)(samples)
 h5ify.save(f'{outdir}/components-and-weights.h5', cw, mode='w')
