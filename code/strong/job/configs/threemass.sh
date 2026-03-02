@@ -1,0 +1,10 @@
+outdir="../../data/inference/strong/multimass/noah/threemass"
+which_data="noah"
+model="threemass"
+nlive=1000
+max_uncertainty=1
+sampling_seed=1701
+priors="./priors/threemass-only-mass.prior"
+sampler_settings="fast"
+stable_expit=true
+constrain_mu_order="none"

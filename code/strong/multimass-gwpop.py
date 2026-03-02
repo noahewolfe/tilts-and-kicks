@@ -13,6 +13,7 @@ from bilby.core.prior import PriorDict
 from bilby.core.prior import ConditionalPriorDict
 from bilby.core.prior import Uniform
 from bilby.core.prior import TruncatedNormal
+from bilby.core.prior import DirichletElement
 
 import gwpopulation as gwpop
 from gwpopulation.experimental.jax import JittedLikelihood
@@ -30,6 +31,7 @@ from util import write_config
 
 from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
 from models import BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth
+from models import bpl2p_m1q
 
 label = 'run'
 
@@ -43,6 +45,12 @@ parser.add_argument('--priors', type=str)
 parser.add_argument('--sampler-settings', type=str, default='fast')
 parser.add_argument('--nlive', type=int, default=100)
 parser.add_argument('--stable-expit', action='store_true')
+parser.add_argument(
+    '--constrain-mu-order', choices=['none', 'ascending', 'descending'],
+    default='none',
+    help="Enforce ordering on spin magnitude means: "
+         "ascending => mu_1 <= mu_2, descending => mu_1 >= mu_2."
+)
 
 args = parser.parse_args()
 write_config(args)
@@ -60,15 +68,18 @@ maximum_uncertainty = args.maximum_uncertainty
 sampler_settings = args.sampler_settings
 nlive = args.nlive
 stable_expit = args.stable_expit
+constrain_mu_order = args.constrain_mu_order
 
-# stegmann data
+### --- Data --- ###
+
+ln_evidences = None
+
 if which_data == 'stegmann':
     print('Using stegmann data')
     datadir = '../../data/stegmann'
     posteriors = pd.read_pickle(f"{datadir}/gwtc4_posteriors.pkl")
     injections = pd.read_pickle(f"{datadir}/gwtc4_injections_dict.pkl")
 
-### load noah data
 elif which_data == 'noah':
     print('Using noah data')
     from data import get_data
@@ -95,15 +106,8 @@ elif which_data == 'noah':
     ]
 else:
     raise ValueError(f'bad data {which_data}')
-###
 
-# We are considering the default Gaussian_Isotropic_Cut spin model from Stegmann et al. (2025)
-
-################## IMPORTANT SETTINGS ##################
-
-# Control maximum uncertainty in selection function estimation
-# For production runs (as used in Stegmann et al. (2025)), I recommend setting maximum_uncertainty = 1, naccept = 5, nlive = 1000 (which should take several hours)
-# For quick tests, you can set maximum_uncertainty = xp.inf, naccept = 5, nlive = 100 (which should take several minutes)
+### --- Model --- ###
 
 if maximum_uncertainty == 'inf':
     maximum_uncertainty = xp.inf
@@ -120,53 +124,6 @@ elif sampler_settings == 'robust':
     # bilby dynesty defaults
     sampler_kwargs = dict()
 
-########################################################
-
-
-def bpl2p_m1q(
-    dataset,
-    alpha_1,
-    alpha_2,
-    mlow_1,
-    break_mass,
-    delta_m_1,
-    lam_0,
-    lam_1,
-    mpp_1,
-    sigpp_1,
-    mpp_2,
-    sigpp_2,
-    beta
-):
-    lam_fractions = (
-        lam_0,
-        lam_1,
-        1 - lam_0 - lam_1
-    )
-
-    p_m1 = xp.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
-        dataset,
-        alpha_1,
-        alpha_2,
-        mlow_1,
-        break_mass,
-        delta_m_1,
-        lam_fractions,
-        mpp_1,
-        sigpp_1,
-        mpp_2,
-        sigpp_2,
-    ))
-
-    p_q = xp.exp(PowerlawPlusPeak_MassRatio(
-        dataset,
-        slope=beta,
-        minimum=mlow_1,
-        delta_m=delta_m_1
-    ))
-
-    return p_m1 * p_q
-
 
 def get_model(model):
     from models import default_stegmann_spin_model
@@ -176,7 +133,7 @@ def get_model(model):
         mu_1,
         sigma_1,
         mu_tilt_1,
-        sigma_tilt_1, 
+        sigma_tilt_1,
         mu_2,
         sigma_2,
         mu_3,
@@ -189,7 +146,7 @@ def get_model(model):
             mu_1,
             sigma_1,
             mu_tilt_1,
-            sigma_tilt_1, 
+            sigma_tilt_1,
             mu_2,
             sigma_2,
             mu_3,
@@ -197,7 +154,7 @@ def get_model(model):
             weight_a,
             m_cut,
             stable_expit=stable_expit
-        ) 
+        )
 
     if model == 'default-spin-simple-power-law-mass':
         model_functions = [
@@ -228,6 +185,20 @@ def get_model(model):
     )
 
 
+def make_mu_conversion(order):
+    """Return conversion_function for HyperparameterLikelihood."""
+    if order == 'none':
+        return lambda params: (params, [])
+    def convert(parameters):
+        g0, g1 = parameters['g_0'], parameters['g_1']
+        if order == 'ascending':
+            parameters['mu_1'], parameters['mu_2'] = g0, g0 + g1
+        else:  # descending
+            parameters['mu_1'], parameters['mu_2'] = g0 + g1, g0
+        return parameters, ['mu_1', 'mu_2']
+    return convert
+
+
 vt = gwpop.vt.ResamplingVT(
     model=get_model(model),
     data=injections,
@@ -242,13 +213,13 @@ likelihood = gwpop.hyperpe.HyperparameterLikelihood(
     hyper_prior=get_model(model),
     selection_function=vt,
     maximum_uncertainty=maximum_uncertainty,
-    ln_evidences=ln_evidences
+    ln_evidences=ln_evidences,
+    conversion_function=make_mu_conversion(constrain_mu_order),
 )
 
-# Define priors for hyperparameters
+### --- Priors --- ###
 
-# mass
-if model == 'default-spin-simple-power-law-mass': 
+if model == 'default-spin-simple-power-law-mass':
     priors = PriorDict()
     priors["alpha"] = Uniform(minimum=-2, maximum=4, latex_label="$\\alpha$")
     priors["beta"] = Uniform(minimum=-4, maximum=12, latex_label="$\\beta$")
@@ -262,11 +233,16 @@ else:
     priors = ConditionalPriorDict(priors)
 
 # spin
-priors["mu_1"] = Uniform(minimum=0, maximum=1, latex_label="$\\mu_1$")
+if constrain_mu_order == 'none':
+    priors["mu_1"] = Uniform(minimum=0, maximum=1, latex_label="$\\mu_1$")
+    priors["mu_2"] = Uniform(minimum=0, maximum=1, latex_label="$\\mu_2$")
+else:
+    priors["g_0"] = DirichletElement(order=0, n_dimensions=3, label='g_')
+    priors["g_1"] = DirichletElement(order=1, n_dimensions=3, label='g_')
+
 priors["sigma_1"] = Uniform(minimum=0.1, maximum=1, latex_label="$\\sigma_1$")
 priors["mu_tilt_1"] = Uniform(minimum=-1, maximum=1, latex_label="$\\mu_{t,1}$")
 priors["sigma_tilt_1"] = TruncatedNormal(minimum=0.1, maximum=4, sigma=1/2, mu=0, latex_label="$\\sigma_{t,1}$")
-priors["mu_2"] = Uniform(minimum=0, maximum=1, latex_label="$\\mu_2$")
 priors["sigma_2"] = Uniform(minimum=0.1, maximum=1, latex_label="$\\sigma_2$")
 priors["weight_a"] = Uniform(minimum=0, maximum=1, latex_label="$w_a$")
 priors["mu_3"] = Uniform(minimum=0, maximum=1, latex_label="$\\mu_3$")
@@ -279,10 +255,11 @@ priors["lamb"] = Uniform(minimum=-1, maximum=10, latex_label="$\\lambda_{z}$")
 priors.to_file(outdir, label)
 
 jit_likelihood = JittedLikelihood(likelihood)
-ll = jit_likelihood.log_likelihood(priors.sample())
-print('log likelihood :', ll)
+ll = jit_likelihood.log_likelihood_ratio(priors.sample())
+print('log likelihood ratio :', ll)
 
-# Run sampler
+### --- Sample --- ###
+
 result = bb.run_sampler(
     likelihood=jit_likelihood,
     priors=priors,
@@ -295,31 +272,45 @@ result = bb.run_sampler(
     **sampler_kwargs
 )
 
+### --- Post-process --- ###
+
 # result.log_evidence is nan because JittedLikelihood.noise_log_likelihood() inherits
 # bilby's base which returns nan. result.log_bayes_factor = dynesty's logz is correct.
 # Recompute log_evidence by scaling the nested sampling evidence by sum(ln_evidences).
-sum_ln_ev = np.sum(ln_evidences)
-result.log_noise_evidence = sum_ln_ev
-result.log_evidence = result.log_bayes_factor + sum_ln_ev
-print(f'log noise evidence : {result.log_noise_evidence:.3f}')
-print(f'log Bayes factor   : {result.log_bayes_factor:.3f}')
-print(f'log evidence       : {result.log_evidence:.3f}')
+if ln_evidences is not None:
+    sum_ln_ev = np.sum(ln_evidences)
+    result.log_noise_evidence = sum_ln_ev
+    result.log_evidence = result.log_bayes_factor + sum_ln_ev
+    print(f'log noise evidence : {result.log_noise_evidence:.3f}')
+    print(f'log Bayes factor   : {result.log_bayes_factor:.3f}')
+    print(f'log evidence       : {result.log_evidence:.3f}')
 result.save_to_file(overwrite=True)
 
 # call here first, in case the later code fails
 # ---we want to get at least something!
 result.plot_corner()
 
-def components_and_weights(parameters):
+
+def components_and_weights(parameters, *, model, stable_expit, constrain_mu_order):
     m_cut = parameters['m_cut']
     weight_a = parameters['weight_a']
+
+    if constrain_mu_order == 'none':
+        mu_1 = parameters['mu_1']
+        mu_2 = parameters['mu_2']
+    elif constrain_mu_order == 'ascending':
+        mu_1 = parameters['g_0']
+        mu_2 = parameters['g_0'] + parameters['g_1']
+    elif constrain_mu_order == 'descending':
+        mu_1 = parameters['g_0'] + parameters['g_1']
+        mu_2 = parameters['g_0']
 
     test_chi = xp.linspace(0, 1, 500)
     test_tau = xp.linspace(-1, 1, 500)
 
     # Free Gaussian component
-    chi = gwpop.utils.truncnorm(test_chi, parameters['mu_1'], parameters['sigma_1'], 1, 0)
-    chi_iso = gwpop.utils.truncnorm(test_chi, parameters['mu_2'], parameters['sigma_2'], 1, 0)
+    chi = gwpop.utils.truncnorm(test_chi, mu_1, parameters['sigma_1'], 1, 0)
+    chi_iso = gwpop.utils.truncnorm(test_chi, mu_2, parameters['sigma_2'], 1, 0)
     chi_high_iso = gwpop.utils.truncnorm(test_chi, parameters['mu_3'], parameters['sigma_3'], 1, 0)
 
     cos_tilt = gwpop.utils.truncnorm(test_tau, parameters['mu_tilt_1'], parameters['sigma_tilt_1'], 1, -1)
@@ -331,7 +322,7 @@ def components_and_weights(parameters):
         zeta = jax.scipy.special.expit(mm - m_cut)
     else:
         zeta = 1 / (1 + jnp.exp(-mm + m_cut))
- 
+
 
     weight = (1 - zeta) * weight_a
     weight_iso = (1 - zeta) * (1 - weight_a)
@@ -538,7 +529,14 @@ if 'gaussian_mass_maximum' in result.posterior:
 
 result.plot_corner(parameters=list(result.posterior.keys()))
 
-cw = scan(components_and_weights)(samples)
+cw = scan(
+    lambda p: components_and_weights(
+        p,
+        model=model,
+        stable_expit=stable_expit,
+        constrain_mu_order=constrain_mu_order,
+    )
+)(samples)
 h5ify.save(f'{outdir}/components-and-weights.h5', cw, mode='w')
 
 # truncnorm component
@@ -555,7 +553,7 @@ for param in ['cos_tilt']:
         xs = jnp.linspace(0, 1, 500)
         ax.set_ylim(-0.1, 3.0)
         ax.set_xlim(0, 1)
-        ax.set_xlabel(r'$\chi_{1,2}$') 
+        ax.set_xlabel(r'$\chi_{1,2}$')
 
     prob1 = cw[param] * cw['weight'][:, None]
     med = jnp.median(prob1, axis=0)

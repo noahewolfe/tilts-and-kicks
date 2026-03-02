@@ -432,6 +432,7 @@ def cut_data(event_data, injections, snr_thresh=10, far_thresh=1):
 
     found = []
     events = []
+
     for event, snr, far, catalog in zip(*event_data[1:]):
         fi = ('GWTC-1' in catalog) & (snr >= snr_thresh)
         fi |= ('GWTC-1' not in catalog) & (far <= far_thresh)
@@ -474,9 +475,10 @@ def get_data(
         prefer_xphm=prefer_xphm,
         prefer_xphm_gwtc3=prefer_xphm_gwtc3
     )
+
     injections = get_injections(load=True)
     events, posteriors, injections = cut_data(
-        event_data[:1],
+        event_data[:-1],
         injections,
         snr_thresh=snr_thresh,
         far_thresh=far_thresh
@@ -498,7 +500,7 @@ def get_data(
 
     ret = (events, posteriors, injections,)
     if return_ln_evidence:
-        ret += (event_data['meta']['ln_evidence'],)
+        ret += (event_data[-1]['ln_evidence'],)
     return ret
 
 

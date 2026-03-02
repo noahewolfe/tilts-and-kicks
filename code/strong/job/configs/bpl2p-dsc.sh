@@ -1,0 +1,10 @@
+outdir="../../data/inference/strong/multimass/noah/bpl2p-v1-nlive500"
+which_data="noah"
+model="default-spin-bpl2p-mass"
+nlive=500
+max_uncertainty=1
+sampling_seed=1701
+priors="./priors/onemass-only-mass.prior"
+sampler_settings="fast"
+stable_expit=true
+constrain_mu_order="ascending"

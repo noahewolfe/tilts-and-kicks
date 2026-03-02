@@ -396,7 +396,49 @@ def log_threemass_stegmann_spin(dataset, parameters):
     return jnp.logaddexp(log_prob, iso_high_mass)
 
 
-### gwpop-style implementations
+### gwpop-style implementations and function calls
+
+def bpl2p_m1q(
+    dataset,
+    alpha_1,
+    alpha_2,
+    mlow_1,
+    break_mass,
+    delta_m_1,
+    lam_0,
+    lam_1,
+    mpp_1,
+    sigpp_1,
+    mpp_2,
+    sigpp_2,
+    beta
+):
+    from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+
+    lam_fractions = (lam_0, lam_1, 1 - lam_0 - lam_1)
+
+    p_m1 = jnp.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
+        dataset,
+        alpha_1,
+        alpha_2,
+        mlow_1,
+        break_mass,
+        delta_m_1,
+        lam_fractions,
+        mpp_1,
+        sigpp_1,
+        mpp_2,
+        sigpp_2,
+    ))
+
+    p_q = jnp.exp(PowerlawPlusPeak_MassRatio(
+        dataset,
+        slope=beta,
+        minimum=mlow_1,
+        delta_m=delta_m_1
+    ))
+
+    return p_m1 * p_q
 
 
 def stegmann_spin_components(
