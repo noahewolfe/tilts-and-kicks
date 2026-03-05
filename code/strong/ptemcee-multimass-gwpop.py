@@ -45,6 +45,15 @@ parser.add_argument('--priors', type=str)
 parser.add_argument('--sampler-settings', type=str, default='fast')
 parser.add_argument('--nlive', type=int, default=100)
 parser.add_argument('--stable-expit', action='store_true')
+parser.add_argument('--nest-result', type=str, required=True,
+    help='Path to bilby result file to draw tempered initial samples from.')
+parser.add_argument(
+    '--nest-result-mu-order', choices=['ascending', 'descending'], default='ascending',
+    help='Ordering used in the source nested sampling run, if it has g_0/g_1 instead '
+         'of mu_1/mu_2. ascending => mu_1=g_0, mu_2=g_0+g_1; '
+         'descending => mu_1=g_0+g_1, mu_2=g_0.'
+)
+parser.add_argument('--nwalkers', type=int, default=200)
 parser.add_argument(
     '--constrain-mu-order', choices=['none', 'ascending', 'descending'],
     default='none',
@@ -110,11 +119,20 @@ priors.to_file(outdir, label)
 
 ### --- Initialization --- ###
 from bilby.core.result import read_in_result
-variance = h5ify.load('../../data/inference/strong/multimass/noah/twomass/constrain_mu_order/ascending/posterior.h5')['variance']
-nest_result = read_in_result('../../data/inference/strong/multimass/noah/twomass/constrain_mu_order/ascending/run_result.hdf5')
+nest_result = read_in_result(args.nest_result)
+ns = nest_result.nested_samples
 
-nest_result.nested_samples['mu_1'] = nest_result.nested_samples['g_0']
-nest_result.nested_samples['mu_2'] = nest_result.nested_samples['g_0'] + nest_result.nested_samples['g_1']
+if 'g_0' in ns.columns and 'g_1' in ns.columns and 'mu_1' not in ns.columns:
+    if args.nest_result_mu_order == 'descending':
+        ns['mu_1'] = ns['g_0'] + ns['g_1']
+        ns['mu_2'] = ns['g_0']
+    else:
+        ns['mu_1'] = ns['g_0']
+        ns['mu_2'] = ns['g_0'] + ns['g_1']
+
+missing = set(priors.keys()) - set(ns.columns)
+if missing:
+    raise ValueError(f'Nested sampling result missing keys required by prior: {missing}')
 
 def tempered_weights(nested_samples, beta):
     """
@@ -225,33 +243,32 @@ def set_tempered_nested_samples(
         # indices for each position in an array (ntemps, nwalkers)
         set_idxs = tuple(np.mgrid[0:ntemps, 0:nwalkers])
 
+    # Draw one sample index per (temperature, walker); all parameters for a
+    # walker share the same index so joint constraints (e.g. Dirichlet sums)
+    # are preserved.
     tempered_sample_idxs = np.array(
         [
             np.random.choice(
                 len(nested_samples),
-                (nwalkers, ndim),
+                nwalkers,
                 p=tempered_weights(nested_samples.copy(), temp),
                 replace=True,
             )
             for temp in temperatures
         ]
     )
-    # --> shape is (ntemps, nwalkers, ndim) b/c we generate an array
-    # shapes like (nwalkers, ndim) at each temp
+    # shape: (ntemps, nwalkers)
 
-    # then, move the last axis to the front, so it's (ndim, ntemps, nwalkers)
-    tempered_sample_idxs = np.moveaxis(tempered_sample_idxs, -1, 0)
-
-    for k, key in enumerate(parameter_keys):
+    for key in parameter_keys:
         samples[key][set_idxs] = nested_samples[key].values[
-            tempered_sample_idxs[k, :, :]
+            tempered_sample_idxs
         ]
 
-nested_samples = nest_result.nested_samples
+nested_samples = ns
 
 from ptemcee import default_beta_ladder
 ntemps = 10
-nwalkers = 100
+nwalkers = args.nwalkers
 pos0 = priors.sample((ntemps, nwalkers))
 temperatures = default_beta_ladder(
     ndim=len(priors.keys()),
@@ -271,8 +288,8 @@ plot_corner(np.column_stack([ pos0[k].flatten() for k in pos0.keys() ]), labels=
 sampler_kwargs = dict(
     ntemps=ntemps,
     nwalkers=nwalkers,
-    #pos0=pos0
-    pos0='prior'
+    pos0=pos0,
+    use_ratio=True,
 )
 
 

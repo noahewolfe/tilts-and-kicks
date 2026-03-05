@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --partition=submit-gpu
+#SBATCH --partition=submit-gpu-express
 #SBATCH --gres=gpu:1
 #SBATCH --constraint=nvidia_a30
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=25G
-#SBATCH --time=12:00:00
+#SBATCH --time=1:00:00
 #SBATCH --error=./ptemcee.err
 #SBATCH --out=./ptemcee.out
 
