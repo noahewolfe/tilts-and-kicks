@@ -797,7 +797,11 @@ def concat(outdir, load_all=False):
         return extras, total, data
 
     if load_all:
-        extras, total_generated, detectable = load(dirs[0], 'detectable')
+        detectable = h5ify.load(f'{outdir}/detectable.hdf5')
+        extras = {k : detectable.pop(k) for k in ['attrs', 'parameters', 'model']}
+        total_generated = detectable.pop('total_generated')
+
+        print('using total_generated =', total_generated)
 
         with h5py.File(f'{outdir}/all.hdf5', 'w') as f:
             dsets = dict()
