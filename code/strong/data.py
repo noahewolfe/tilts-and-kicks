@@ -102,15 +102,33 @@ def _get_sample_set(f, prefer_xphm_gwtc3=False, prefer_xphm=False):
 
     print('using sample set:', wvf)
 
-    return f[wvf]['posterior_samples']
+    # f['C00:IMRPhenomXPHM-SpinTaylor']['meta_data']['sampler']
+
+    grp = f[wvf]
+    meta_data = grp['meta_data']['sampler'] 
+
+    attrs = {
+        k : meta_data[k][:] if k in meta_data else np.nan
+        for k in ['ln_bayes_factor', 'ln_evidence', 'ln_evidence_error', 'ln_noise_evidence'] 
+    }
+
+    if wvf == 'C00:Mixed' and 'ln_evidence' not in meta_data:
+        ln_z = 0
+        for k in keys:
+            if 'Mixed' not in k and 'XO4a' not in k:
+                ln_z += f[k]['meta_data']['sampler']['ln_evidence'][:]
+        attrs['ln_evidence'] = ln_z
+
+    return grp['posterior_samples'], attrs 
 
 
 def load_and_reduce_pe(path, pars, prefer_xphm_gwtc3, prefer_xphm=False):
     # TODO: switches for prior choices?
     with h5py.File(path, 'r') as f:
-        data = _get_sample_set(
+        data, attrs = _get_sample_set(
             f, prefer_xphm_gwtc3=prefer_xphm_gwtc3, prefer_xphm=prefer_xphm
         )
+
         posterior = {par: data[par][:] for par in pars}
         posterior['prior'] = UniformSourceFrame(
             minimum=posterior['redshift'].min(),
@@ -119,19 +137,25 @@ def load_and_reduce_pe(path, pars, prefer_xphm_gwtc3, prefer_xphm=False):
             name='redshift',
         ).prob(posterior['redshift']) * (1 + posterior['redshift'])**2
 
+    for k, v in attrs.items():
+        posterior[k] = v
+
     return posterior
 
 
-def resample_and_reshape_positeriors(posteriors, seed=1):
+def resample_and_reshape_posteriors(posteriors, seed=1):
     min_npe_samples = min([len(p['prior']) for p in posteriors])
     rng = np.random.default_rng(seed)
 
     for i, p in enumerate(posteriors):
         idxs = rng.choice(len(p['prior']), min_npe_samples, replace=False)
-        posteriors[i] = {k : p[k][idxs] for k in p.keys()}
+        posteriors[i] = {
+            k : p[k][idxs] if len(np.atleast_1d(p[k])) > 1 else p[k]
+            for k in p.keys()
+        }
 
     return {
-        k : np.stack([p[k] for p in posteriors])
+        k : np.stack([ np.atleast_1d(p[k]) for p in posteriors])
         for k in posteriors[0].keys()
     }
 
@@ -193,8 +217,9 @@ def get_posteriors(
         fars = data['fars']
         cats = data['catalogs']
         cats = list(map(str, np.array(cats).astype(str)))
+        meta = data['meta']
 
-        return posteriors, events, snrs, fars, cats
+        return posteriors, events, snrs, fars, cats, meta
 
     all_events = pd.read_csv(all_list, index_col=False)
     gwtc3 = pd.read_csv(gwtc3_list, delimiter=' ', index_col=False)
@@ -215,7 +240,7 @@ def get_posteriors(
         glob(f'/home/rp.o4/catalogs/GWTC-*/data-release/*{event}*_cosmo.h5')[0]
         for event in events
     ])
-
+    
     if catalog in ['GWTC-4', 'GWTC-5']:
         files4a = sorted(glob(
             '/home/rp.o4/catalogs/GWTC-4/GWTC4-Stable_Release-9/38214bd95_724/'
@@ -273,6 +298,9 @@ def get_posteriors(
 
         posteriors = {e : p for (e, p) in zip(events, posteriors)}
 
+    # TODO: doesnt work if we dont do resample
+    meta = { k : posteriors.pop(k).squeeze() for k in ['ln_bayes_factor', 'ln_evidence', 'ln_evidence_error', 'ln_noise_evidence'] }
+
     if save:
         h5ify.save(
             datapath,
@@ -281,7 +309,8 @@ def get_posteriors(
                 events=events,
                 snrs=snrs,
                 fars=fars,
-                catalogs=cats
+                catalogs=cats,
+                meta=meta
             ),
             mode='w',
             compression='gzip',
@@ -438,7 +467,7 @@ def cut_data(event_data, injections, snr_thresh=10, far_thresh=1):
 
 
 def get_data(
-    snr_thresh=10, far_thresh=1, prefer_xphm=False, prefer_xphm_gwtc3=False
+    snr_thresh=10, far_thresh=1, prefer_xphm=False, prefer_xphm_gwtc3=False, return_ln_evidence=False
 ):
     event_data = get_posteriors(
         load=True,
@@ -447,7 +476,7 @@ def get_data(
     )
     injections = get_injections(load=True)
     events, posteriors, injections = cut_data(
-        event_data,
+        event_data[:1],
         injections,
         snr_thresh=snr_thresh,
         far_thresh=far_thresh
@@ -467,7 +496,10 @@ def get_data(
     injections['total_generated'] = injections.pop('total')
     injections['log_prior'] = np.log(injections['prior'])
 
-    return events, posteriors, injections
+    ret = (events, posteriors, injections,)
+    if return_ln_evidence:
+        ret += (event_data['meta']['ln_evidence'],)
+    return ret
 
 
 if __name__ == '__main__':
