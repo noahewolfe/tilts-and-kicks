@@ -72,11 +72,12 @@ if which_data == 'stegmann':
 elif which_data == 'noah':
     print('Using noah data')
     from data import get_data
-    _, posteriors, injections = get_data(
+    _, posteriors, injections, ln_evidences = get_data(
         snr_thresh=10,
         far_thresh=1,
         prefer_xphm=False,
-        prefer_xphm_gwtc3=True
+        prefer_xphm_gwtc3=True,
+        return_ln_evidence=True
     )
 
     if 'log_prior' in posteriors:
@@ -241,7 +242,7 @@ likelihood = gwpop.hyperpe.HyperparameterLikelihood(
     hyper_prior=get_model(model),
     selection_function=vt,
     maximum_uncertainty=maximum_uncertainty,
-    outdir=outdir
+    ln_evidences=ln_evidences
 )
 
 # Define priors for hyperparameters
@@ -278,7 +279,8 @@ priors["lamb"] = Uniform(minimum=-1, maximum=10, latex_label="$\\lambda_{z}$")
 priors.to_file(outdir, label)
 
 jit_likelihood = JittedLikelihood(likelihood)
-jit_likelihood.log_likelihood_ratio(priors.sample())
+ll = jit_likelihood.log_likelihood(priors.sample())
+print('log likelihood :', ll)
 
 # Run sampler
 result = bb.run_sampler(
@@ -292,6 +294,17 @@ result = bb.run_sampler(
     seed=sampling_seed,
     **sampler_kwargs
 )
+
+# result.log_evidence is nan because JittedLikelihood.noise_log_likelihood() inherits
+# bilby's base which returns nan. result.log_bayes_factor = dynesty's logz is correct.
+# Recompute log_evidence by scaling the nested sampling evidence by sum(ln_evidences).
+sum_ln_ev = np.sum(ln_evidences)
+result.log_noise_evidence = sum_ln_ev
+result.log_evidence = result.log_bayes_factor + sum_ln_ev
+print(f'log noise evidence : {result.log_noise_evidence:.3f}')
+print(f'log Bayes factor   : {result.log_bayes_factor:.3f}')
+print(f'log evidence       : {result.log_evidence:.3f}')
+result.save_to_file(overwrite=True)
 
 # call here first, in case the later code fails
 # ---we want to get at least something!

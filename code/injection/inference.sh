@@ -1,6 +1,6 @@
 #!/bin/sh
   
-#SBATCH --job-name=test
+#SBATCH --job-name=iso
 #SBATCH -p iaifi_gpu_requeue 
 #SBATCH --gres=gpu:1
 #SBATCH -c 1
@@ -11,19 +11,20 @@ set -euox pipefail
 
 export JAX_ENABLE_X64=True
 
-nobs=70
-seed=746570
-outdir="../../data/inference/injection/tests"
-outdir="${outdir}/260207/nobs${nobs}-seed${seed}-ulin-broad"
+nobs=150
+seed=1768
+outdir="../../data/inference/injection"
+outdir="${outdir}/salvo-iso/nobs${nobs}-seed${seed}-ulin-broad-var1"
 
 mkdir -p $outdir
 
 /n/home03/newolfe/.conda/envs/just-for-kicks/bin/python -u inference.py \
     --outdir $outdir \
-    --posteriors ../../data/pe/tests/260207/posteriors.hdf5 \
-    --injections ../../data/vt/tests/260213/detectable.hdf5 \
-    --truths ./parameters/astro-o4a-strong-maxl-sigma-spin-1e-2-xi-0p3.json \
+    --posteriors ../../data/pe/salvo-iso/posteriors_from_ids1.pkl \
+    --injections ../../data/vt/zenodo.17080422/injections.h5 \
+    --truths ../../data/pe/salvo-iso/allinjs_list_O4.dat \
     --seed $seed \
-    --maximum-variance 10 \
+    --maximum-variance 1 \
     --nobs $nobs \
+    --cut 11 \
     > $outdir/log.out 2> $outdir/log.err
