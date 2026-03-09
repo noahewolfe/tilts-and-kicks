@@ -11,7 +11,6 @@ import h5ify
 import numpy as np
 from tqdm import tqdm
 
-import jax
 import jax.numpy as jnp
 
 import bilby
@@ -139,31 +138,35 @@ def get_parameters(path=None, outdir=None, **kwargs):
         return parameters
 
 
-def get_inj_priors(model, parameters, outdir=None):
-    inj_priors = bilby.core.prior.PriorDict(dict(
-        dec=Cosine(name='dec'),
-        ra=Uniform(
-            name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic'
-        ),
-        theta_jn=Sine(name='theta_jn'),
-        psi=Uniform(
-            name='psi', minimum=0, maximum=np.pi, boundary='periodic'
-        ),
-        phase=Uniform(
-            name='phase', minimum=0, maximum=2 * np.pi, boundary='periodic'
-        ),
-        phi_12=Uniform(
-            name='phi_12', minimum=0, maximum=2 * np.pi, boundary='periodic'
-        ),
-        phi_jl=Uniform(
-            name='phi_jl', minimum=0, maximum=2 * np.pi, boundary='periodic'
-        ),
-        geocent_time=Uniform(
-            name='geocent_time',
-            minimum=1126259642.413,
-            maximum=1126259642.413 + 86_400
-        )
-    ))
+def get_inj_priors(model, parameters, outdir=None, incl_sky_phase_time=True):
+
+    inj_priors = bilby.core.prior.PriorDict(dict())
+
+    if incl_sky_phase_time:
+        inj_priors.update(dict(
+            dec=Cosine(name='dec'),
+            ra=Uniform(
+                name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic'
+            ),
+            theta_jn=Sine(name='theta_jn'),
+            psi=Uniform(
+                name='psi', minimum=0, maximum=np.pi, boundary='periodic'
+            ),
+            phase=Uniform(
+                name='phase', minimum=0, maximum=2 * np.pi, boundary='periodic'
+            ),
+            phi_12=Uniform(
+                name='phi_12', minimum=0, maximum=2 * np.pi, boundary='periodic'
+            ),
+            phi_jl=Uniform(
+                name='phi_jl', minimum=0, maximum=2 * np.pi, boundary='periodic'
+            ),
+            geocent_time=Uniform(
+                name='geocent_time',
+                minimum=1126259642.413,
+                maximum=1126259642.413 + 86_400
+            )
+        ))
 
     if model['cos_tilt'] == 'iso_gauss':
         cts = np.linspace(-1 + 1e-10, 1 - 1e-10, 10_000)
@@ -315,6 +318,8 @@ def draw_injection(priors, model, parameters):
     qs = np.linspace(qmin, 1, 500)
 
     injection_parameters = priors.sample()
+    injection_parameters.pop('cos_tilt_gauss')
+
     this_m1 = injection_parameters['mass_1_source']
 
     if model['mass_ratio'] == 'highpass_powerlaw':
@@ -797,7 +802,11 @@ def concat(outdir, load_all=False):
         return extras, total, data
 
     if load_all:
-        extras, total_generated, detectable = load(dirs[0], 'detectable')
+        detectable = h5ify.load(f'{outdir}/detectable.hdf5')
+        extras = {k : detectable.pop(k) for k in ['attrs', 'parameters', 'model']}
+        total_generated = detectable.pop('total_generated')
+
+        print('using total_generated =', total_generated)
 
         with h5py.File(f'{outdir}/all.hdf5', 'w') as f:
             dsets = dict()
