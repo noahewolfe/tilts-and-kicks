@@ -1,0 +1,9 @@
+outdir="/home/submit/newolfe/projects/tilts-and-kicks/data/inference/strong/identifiable/noah/free-mmax-low"
+which_data="noah"
+nlive=200
+max_uncertainty=1
+sampling_seed=1701
+priors="./priors/identifiable.prior"
+sampler_settings="fast"
+sample_log_sigma=true
+constrain_mu_order="none"

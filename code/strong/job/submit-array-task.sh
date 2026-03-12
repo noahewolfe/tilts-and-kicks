@@ -47,6 +47,6 @@ apptainer exec \
     --bind /usr/bin/git:/usr/bin/git \
     --pwd "${SCRIPT_DIR}" \
     "${SIF}" \
-    bash job/run-multimass-gwpop.sh "$_task_config"
+    bash ${SCRIPT_DIR}/job/run-multimass-gwpop.sh "$_task_config"
 
 echo "Finished : $(date)"

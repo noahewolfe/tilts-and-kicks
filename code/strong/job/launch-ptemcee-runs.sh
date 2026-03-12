@@ -8,19 +8,23 @@ BASE="../../data/inference/strong/multimass/noah"
 
 sbatch --partition=submit-gpu --time=48:00:00 \
   --export=ALL,\
-"MODEL=default-spin-bpl2p-mass",\
+"MODEL=default-spin-simple-power-law-mass",\
 "PRIORS=./priors/onemass-only-mass.prior",\
-"NEST_RESULT=${BASE}/bpl2p-v1-nlive1000/sampling_seed/1702/run_result.hdf5",\
-"OUTDIR=${BASE}/bpl2p-v1-nlive1000/ptemcee-hybrid",\
+"NEST_RESULT=${BASE}/default/nlive1000-var1-stableexpit/run_result.hdf5",\
+"OUTDIR=${BASE}/default/ptemcee-hybrid-var5",\
+"MAX_UNCERTAINTY=5",\
 "NWALKERS=200" \
   ./job/submit-ptemcee.sh
+
+exit 0
 
 sbatch --partition=submit-gpu --time=48:00:00 \
   --export=ALL,\
 "MODEL=twomass",\
 "PRIORS=./priors/twomass-only-mass.prior",\
 "NEST_RESULT=${BASE}/twomass/constrain_mu_order/ascending/run_result.hdf5",\
-"OUTDIR=${BASE}/twomass/ptemcee-hybrid",\
+"OUTDIR=${BASE}/twomass/ptemcee-hybrid-var1",\
+"MAX_UNCERTAINTY=1",\
 "NWALKERS=200" \
   ./job/submit-ptemcee.sh
 
@@ -29,6 +33,7 @@ sbatch --partition=submit-gpu --time=48:00:00 \
 "MODEL=threemass",\
 "PRIORS=./priors/threemass-only-mass.prior",\
 "NEST_RESULT=${BASE}/threemass/sampling_seed/1703/run_result.hdf5",\
-"OUTDIR=${BASE}/threemass/ptemcee-hybrid",\
+"OUTDIR=${BASE}/threemass/ptemcee-hybrid-var1",\
+"MAX_UNCERTAINTY=1",\
 "NWALKERS=200" \
   ./job/submit-ptemcee.sh

@@ -157,6 +157,124 @@ def BrokenPowerlawPlusTwoPeaks_PrimaryMass_FullSmooth(
     return log_prob
 
 
+def BrokenPowerlawPlusTwoPeaks_PrimaryMass_LowHighSmooth(
+    data,
+    alpha_1,
+    alpha_2,
+    mlow_1,
+    break_mass,
+    delta_m_1,
+    lam_fractions,
+    mpp_1,
+    sigpp_1,
+    mpp_2,
+    sigpp_2,
+    delta_max,
+    mmax=300.0,
+    gaussian_mass_maximum=100.0
+):
+    """
+    Primary mass distribution: broken power-law + two Gaussian peaks.
+
+    Implements the default GWTC-4.0 primary mass population model:
+    a mixture of (1) a smoothed broken power-law, and (2–3) two
+    truncated Gaussians representing additional features.
+
+    Parameters
+    ----------
+    data : dict or jnp.ndarray
+        Either a dict with key 'mass_1' or 'log_mass_1',
+        or a direct array of primary masses.
+    alpha_1 : float
+        Low-mass slope of the power-law.
+    alpha_2 : float
+        High-mass slope of the power-law.
+    mmin : float
+        Minimum primary mass cutoff.
+    break_mass : float
+        Break mass separating the two slopes.
+    delta_m_1 : float
+        Smoothing width at the low-mass cutoff.
+    lam_fractions : tuple of floats
+        Mixture fractions (lam_0, lam_1, lam_2) for
+        {power-law, first Gaussian, second Gaussian}.
+    mpp_1 : float
+        Mean of the first Gaussian peak.
+    sigpp_1 : float
+        Std. deviation of the first Gaussian peak.
+    mpp_2 : float
+        Mean of the second Gaussian peak.
+    sigpp_2 : float
+        Std. deviation of the second Gaussian peak.
+    mmax : float, optional
+        Maximum primary mass cutoff (default 300).
+    gaussian_mass_maximum : float, optional
+        Upper truncation for Gaussian peaks (default 100).
+    delta_max : float
+        Smoothing width at the high-mass cutoff.
+
+    Returns
+    -------
+    jnp.ndarray
+        Log-probability density of the normalized mass distribution.
+    """
+
+    from pixelpop.models.gwpop_models import BrokenPowerLaw
+    from pixelpop.models.gwpop_models import m_smoother
+
+    import jax.scipy.special as scs
+
+    isLogMass = True
+    if isinstance(data, dict):
+        try:
+            m1 = jnp.exp(data['log_mass_1'])
+        except KeyError:
+            isLogMass = False
+            m1 = data['mass_1']
+    else:
+        isLogMass = False
+        m1 = data
+
+    lam_0, lam_1, lam_2 = lam_fractions
+    break_fraction = (break_mass - mlow_1) / (mmax - mlow_1)
+
+    def shape(m1):
+        p_pow = BrokenPowerLaw(
+            m1, -alpha_1, -alpha_2, mlow_1, mmax, break_fraction
+        )
+        p_norm1 = trunc_gaussian(
+            m1, mpp_1, sigpp_1, mlow_1, gaussian_mass_maximum
+        )
+        p_norm2 = trunc_gaussian(
+            m1, mpp_2, sigpp_2, mlow_1, gaussian_mass_maximum
+        )
+
+        pm1 = scs.logsumexp(jnp.array([
+            jnp.log(lam_0) + p_pow,
+            jnp.log(lam_1) + p_norm1,
+            jnp.log(lam_2) + p_norm2
+        ]), axis=0)
+
+        pm1 += m_smoother(m1, mlow_1, delta_m_1)
+        pm1 += m_smoother(-m1, -mmax, delta_max)
+
+        return pm1
+
+    log_prob = shape(m1)
+
+    xs = jnp.linspace(3, 300, 2_000)
+    dx = xs[1] - xs[0]
+    ys = shape(xs)
+    norm = scs.logsumexp(ys) + jnp.log(dx)  # simple Riemann rule.
+
+    log_prob -= norm
+
+    if isLogMass:  # include jacobian
+        log_prob = log_prob + data['log_mass_1']
+
+    return log_prob
+
+
 def log_iid_spin_mag_truncnorm(dataset, parameters, key=None):
     if key is None:
         mu_chi = parameters['mu_chi']
@@ -810,3 +928,94 @@ def threemass_and_spin_model(
         )
         + zeta * comp3 * mass_comp3 * q_comp3
     )
+
+
+def identifiable_model(
+    dataset,
+    # low-mass primary mass
+    alpha_1, alpha_2, mlow_1, break_mass, delta_m_1,
+    lam_0, lam_1, mpp_1, sigpp_1, mpp_2, sigpp_2,
+    delta_max, mmax_low,
+    # low-mass ratio
+    beta,
+    # high-mass primary mass
+    alpha_high_iso, mmax_high_iso,
+    delta_m_1_high_iso,
+    # high-mass ratio
+    beta_high_iso,
+    # spin magnitudes (A=aligned low, B=iso low, C=high)
+    mu_1, sigma_1, mu_2, sigma_2, mu_3, sigma_3,
+    # tilt (aligned component only)
+    mu_tilt_1, sigma_tilt_1,
+    # mixing
+    weight_a, zeta,
+):
+    """
+    Mass-identified population model.
+
+    Two subpopulations split by mass (low < mmax_low, high > mlow_1_high_iso),
+    mixed with constant zeta. The low-mass pop has two spin sub-components
+    mixed by weight_a.
+    """
+    import gwpopulation as gwpop
+    from pixelpop.models.gwpop_models import PowerlawPlusPeak_MassRatio
+
+    a_1, a_2 = dataset['a_1'], dataset['a_2']
+    ct_1, ct_2 = dataset['cos_tilt_1'], dataset['cos_tilt_2']
+
+    # --- low-mass primary mass ---
+    lam_fractions = (lam_0, lam_1, 1 - lam_0 - lam_1)
+    p_low_m1 = jnp.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass_LowHighSmooth(
+        dataset['mass_1'], alpha_1, alpha_2, mlow_1, break_mass, delta_m_1,
+        lam_fractions, mpp_1, sigpp_1, mpp_2, sigpp_2,
+        delta_max, mmax=mmax_low,
+    ))
+
+    # --- low-mass ratio ---
+    p_low_q = jnp.exp(PowerlawPlusPeak_MassRatio(
+        dataset, slope=beta, minimum=mlow_1, delta_m=delta_m_1,
+    ))
+
+    # --- high-mass primary mass ---
+    p_high_m1 = jnp.exp(BrokenPowerlawPlusTwoPeaks_PrimaryMass_LowHighSmooth(
+        dataset['mass_1'], alpha_high_iso, alpha_high_iso,
+        mmax_low, mmax_low + 1, delta_m_1_high_iso,
+        (1.0, 0.0, 0.0), 50.0, 1.0, 50.0, 1.0,
+        0.0, mmax=mmax_high_iso,
+    ))
+
+    # --- high-mass ratio ---
+    p_high_q = jnp.exp(PowerlawPlusPeak_MassRatio(
+        dataset, slope=beta_high_iso,
+        minimum=mmax_low, delta_m=delta_m_1_high_iso,
+    ))
+
+    # --- spin magnitudes (linear) ---
+    spin_A = (
+        gwpop.utils.truncnorm(a_1, mu_1, sigma_1, 1, 0)
+        * gwpop.utils.truncnorm(a_2, mu_1, sigma_1, 1, 0)
+    )
+    spin_B = (
+        gwpop.utils.truncnorm(a_1, mu_2, sigma_2, 1, 0)
+        * gwpop.utils.truncnorm(a_2, mu_2, sigma_2, 1, 0)
+    )
+    spin_C = (
+        gwpop.utils.truncnorm(a_1, mu_3, sigma_3, 1, 0)
+        * gwpop.utils.truncnorm(a_2, mu_3, sigma_3, 1, 0)
+    )
+
+    # --- tilts ---
+    tilt_A = (
+        gwpop.utils.truncnorm(ct_1, mu_tilt_1, sigma_tilt_1, 1, -1)
+        * gwpop.utils.truncnorm(ct_2, mu_tilt_1, sigma_tilt_1, 1, -1)
+    )
+    tilt_iso = 0.25  # uniform on [-1,1] x [-1,1]
+
+    # --- combine ---
+    low = p_low_m1 * p_low_q * (
+        weight_a * spin_A * tilt_A
+        + (1 - weight_a) * spin_B * tilt_iso
+    )
+    high = p_high_m1 * p_high_q * spin_C * tilt_iso
+
+    return (1 - zeta) * low + zeta * high

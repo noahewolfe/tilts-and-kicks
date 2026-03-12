@@ -1,0 +1,11 @@
+outdir="/home/submit/newolfe/projects/tilts-and-kicks/data/inference/strong/multimass/noah/bpl2p/log-sigma/var1"
+which_data="noah"
+model="default-spin-bpl2p-mass"
+nlive=1000
+max_uncertainty=1
+sampling_seed=1701
+priors="./priors/onemass-only-mass.prior"
+sampler_settings="fast"
+stable_expit=true
+sample_log_sigma=true
+constrain_mu_order="none"

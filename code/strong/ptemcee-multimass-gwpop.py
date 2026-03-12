@@ -12,6 +12,7 @@ from bilby.hyper.model import Model
 from bilby.core.prior import PriorDict
 from bilby.core.prior import ConditionalPriorDict
 from bilby.core.prior import Uniform
+from bilby.core.prior import DeltaFunction
 from bilby.core.prior import TruncatedNormal
 from bilby.core.prior import DirichletElement
 
@@ -90,7 +91,7 @@ if model == 'default-spin-simple-power-law-mass':
     priors["lam"] = Uniform(minimum=0, maximum=1, latex_label="$\\lambda_{m}$")
     priors["mpp"] = Uniform(minimum=10, maximum=50, latex_label="$\\mu_{m}$")
     priors["sigpp"] = Uniform(minimum=1, maximum=10, latex_label="$\\sigma_{m}$")
-    priors["gaussian_mass_maximum"] = 100
+    priors["gaussian_mass_maximum"] = DeltaFunction(peak=100)
 else:
     priors = ConditionalPriorDict(priors)
 
@@ -130,6 +131,12 @@ if 'g_0' in ns.columns and 'g_1' in ns.columns and 'mu_1' not in ns.columns:
         ns['mu_1'] = ns['g_0']
         ns['mu_2'] = ns['g_0'] + ns['g_1']
 
+if 'gaussian_mass_maximum' in priors:
+    print('added gaussian mass maximum')
+    # TODO: generalize don't just hard code the number
+    ns['gaussian_mass_maximum'] = np.ones_like(ns['lamb']) * 100 #priors['gaussian_mass_maximum'].peak
+print(ns.columns)
+    
 missing = set(priors.keys()) - set(ns.columns)
 if missing:
     raise ValueError(f'Nested sampling result missing keys required by prior: {missing}')
@@ -281,9 +288,8 @@ set_tempered_nested_samples(
 
 np.save(f'{outdir}/pos0.npy', pos0)
 
-from util import plot_corner
-
-plot_corner(np.column_stack([ pos0[k].flatten() for k in pos0.keys() ]), labels=list(pos0.keys()), fname=f'{outdir}/pos0.jpg')
+#from util import plot_corner
+#plot_corner(np.column_stack([ pos0[k].flatten() for k in pos0.keys() ]), labels=list(pos0.keys()), fname=f'{outdir}/pos0.jpg')
 
 sampler_kwargs = dict(
     ntemps=ntemps,

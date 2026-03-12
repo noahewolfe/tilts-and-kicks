@@ -15,6 +15,8 @@ from bilby.core.prior import Uniform
 from bilby.core.prior import TruncatedNormal
 from bilby.core.prior import DirichletElement
 
+from likelihood import likelihood_extras
+
 import gwpopulation as gwpop
 from gwpopulation.experimental.jax import JittedLikelihood
 gwpop.set_backend("jax")
@@ -51,6 +53,16 @@ parser.add_argument(
     help="Enforce ordering on spin magnitude means: "
          "ascending => mu_1 <= mu_2, descending => mu_1 >= mu_2."
 )
+parser.add_argument(
+    '--sample-log-sigma',
+    action='store_true',
+    help='Sample in log_sigma_i as opposed to sigma_i; these are stds of the spin magnitude distribution(s).'
+)
+parser.add_argument(
+    '--dynamic',
+    action='store_true',
+    help='Use DynamicDynesty instead of static Dynesty'
+)
 
 args = parser.parse_args()
 write_config(args)
@@ -69,6 +81,8 @@ sampler_settings = args.sampler_settings
 nlive = args.nlive
 stable_expit = args.stable_expit
 constrain_mu_order = args.constrain_mu_order
+sample_log_sigma = args.sample_log_sigma
+dynamic = args.dynamic
 
 ### --- Data --- ###
 
@@ -185,17 +199,28 @@ def get_model(model):
     )
 
 
-def make_mu_conversion(order):
+def make_conversion(order, sample_log_sigma):
     """Return conversion_function for HyperparameterLikelihood."""
-    if order == 'none':
-        return lambda params: (params, [])
+
     def convert(parameters):
-        g0, g1 = parameters['g_0'], parameters['g_1']
-        if order == 'ascending':
-            parameters['mu_1'], parameters['mu_2'] = g0, g0 + g1
-        else:  # descending
-            parameters['mu_1'], parameters['mu_2'] = g0 + g1, g0
-        return parameters, ['mu_1', 'mu_2']
+        added = []
+
+        if sample_log_sigma:
+            for i in range(1, 4):
+                key = f'sigma_{i}'
+                parameters[key] = xp.exp(parameters[f'log_{key}'])
+                added.append(key)
+
+        if order != 'none':        
+            g0, g1 = parameters['g_0'], parameters['g_1']
+            if order == 'ascending':
+                 parameters['mu_1'], parameters['mu_2'] = g0, g0 + g1
+            elif order == 'descending':
+                 parameters['mu_1'], parameters['mu_2'] = g0 + g1, g0
+            added += ['mu_1', 'mu_2']
+
+        return parameters, added
+    
     return convert
 
 
@@ -214,7 +239,7 @@ likelihood = gwpop.hyperpe.HyperparameterLikelihood(
     selection_function=vt,
     maximum_uncertainty=maximum_uncertainty,
     ln_evidences=ln_evidences,
-    conversion_function=make_mu_conversion(constrain_mu_order),
+    conversion_function=make_conversion(constrain_mu_order, sample_log_sigma),
 )
 
 ### --- Priors --- ###
@@ -240,13 +265,18 @@ else:
     priors["g_0"] = DirichletElement(order=0, n_dimensions=3, label='g_')
     priors["g_1"] = DirichletElement(order=1, n_dimensions=3, label='g_')
 
-priors["sigma_1"] = Uniform(minimum=0.1, maximum=1, latex_label="$\\sigma_1$")
+if sample_log_sigma:
+    for i in range(1, 4):
+        priors[f'log_sigma_{i}'] = Uniform(minimum=np.log(0.1), maximum=0, latex_label="$\\ln \\sigma_" + f"{i}$")
+else:
+    priors["sigma_1"] = Uniform(minimum=0.1, maximum=1, latex_label="$\\sigma_1$")
+    priors["sigma_2"] = Uniform(minimum=0.1, maximum=1, latex_label="$\\sigma_2$")
+    priors["sigma_3"] = Uniform(minimum=0.1, maximum=1, latex_label="$\\sigma_3$")
+
 priors["mu_tilt_1"] = Uniform(minimum=-1, maximum=1, latex_label="$\\mu_{t,1}$")
 priors["sigma_tilt_1"] = TruncatedNormal(minimum=0.1, maximum=4, sigma=1/2, mu=0, latex_label="$\\sigma_{t,1}$")
-priors["sigma_2"] = Uniform(minimum=0.1, maximum=1, latex_label="$\\sigma_2$")
 priors["weight_a"] = Uniform(minimum=0, maximum=1, latex_label="$w_a$")
 priors["mu_3"] = Uniform(minimum=0, maximum=1, latex_label="$\\mu_3$")
-priors["sigma_3"] = Uniform(minimum=0.1, maximum=1, latex_label="$\\sigma_3$")
 priors["m_cut"] = Uniform(minimum=10, maximum=100, latex_label="$m_{\\rm cut}$")
 
 # redshift
@@ -263,7 +293,7 @@ print('log likelihood ratio :', ll)
 result = bb.run_sampler(
     likelihood=jit_likelihood,
     priors=priors,
-    sampler="dynesty",
+    sampler="dynesty" if not dynamic else "DynamicDynesty",
     label=label,
     nlive=nlive,
     save="hdf5",
@@ -284,7 +314,7 @@ if ln_evidences is not None:
     print(f'log noise evidence : {result.log_noise_evidence:.3f}')
     print(f'log Bayes factor   : {result.log_bayes_factor:.3f}')
     print(f'log evidence       : {result.log_evidence:.3f}')
-result.save_to_file(overwrite=True)
+result.save_to_file(overwrite=True, extension='hdf5')
 
 # call here first, in case the later code fails
 # ---we want to get at least something!
@@ -322,7 +352,6 @@ def components_and_weights(parameters, *, model, stable_expit, constrain_mu_orde
         zeta = jax.scipy.special.expit(mm - m_cut)
     else:
         zeta = 1 / (1 + jnp.exp(-mm + m_cut))
-
 
     weight = (1 - zeta) * weight_a
     weight_iso = (1 - zeta) * (1 - weight_a)
@@ -518,11 +547,19 @@ def components_and_weights(parameters, *, model, stable_expit, constrain_mu_orde
 samples = result.posterior.to_dict('list')
 samples = {k : xp.array(v) for k, v in samples.items()}
 
-extras = scan(likelihood.generate_extra_statistics)(samples)
+extras = scan(
+    lambda parameters: likelihood_extras(
+        jax.random.key(1),
+        parameters,
+        likelihood
+    )
+)(samples)
+
 extras['samples'] = samples
 h5ify.save(f'{outdir}/posterior.h5', extras, mode='w')
 
 result.posterior['variance'] = extras['variance']
+result.save_to_file(overwrite=True, extension='hdf5')
 
 if 'gaussian_mass_maximum' in result.posterior:
     result.posterior.pop('gaussian_mass_maximum')

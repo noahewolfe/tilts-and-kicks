@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-CONFIG=${1:?Usage: run-multimass-gwpop.sh <config.sh>}
+CONFIG=${1:?Usage: run-identifiable-gwpop.sh <config.sh>}
 source "$CONFIG"
 
 export JAX_ENABLE_X64=1
@@ -12,7 +12,6 @@ PYTHON=/work/submit/newolfe/miniforge3/envs/just-for-kicks-260228/bin/python
 ARGS=(
     --outdir              "$outdir"
     --which-data          "$which_data"
-    --model               "$model"
     --nlive               "$nlive"
     --maximum-uncertainty "$max_uncertainty"
     --sampling-seed       "$sampling_seed"
@@ -20,8 +19,7 @@ ARGS=(
     --priors              "$priors"
     --constrain-mu-order  "${constrain_mu_order:-none}"
 )
-[[ "${stable_expit:-false}" == "true" ]] && ARGS+=(--stable-expit)
 [[ "${sample_log_sigma:-false}" == "true" ]] && ARGS+=(--sample-log-sigma)
 [[ "${dynamic:-false}" == "true" ]] && ARGS+=(--dynamic)
 
-exec "$PYTHON" -u multimass-gwpop.py "${ARGS[@]}"
+exec "$PYTHON" -u identifiable-gwpop.py "${ARGS[@]}"

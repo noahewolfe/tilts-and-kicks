@@ -1,4 +1,4 @@
-outdir="../../data/inference/strong/multimass/noah/threemass"
+outdir="/home/submit/newolfe/projects/tilts-and-kicks/data/inference/strong/multimass/noah/threemass/log-sigma/var1"
 which_data="noah"
 model="threemass"
 nlive=1000
@@ -7,4 +7,5 @@ sampling_seed=1701
 priors="./priors/threemass-only-mass.prior"
 sampler_settings="fast"
 stable_expit=true
+sample_log_sigma=true
 constrain_mu_order="none"

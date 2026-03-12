@@ -237,3 +237,45 @@ def get_bilby_likelihood(
             return self.log_likelihood_ratio(parameters=parameters)
 
     return LikelihoodWrapper()
+
+
+
+def likelihood_extras(key, parameters, likelihood):
+    """
+    adapted from some code from matt;
+    for use with gwpop style runs
+    """
+    
+    extras = likelihood.generate_extra_statistics(parameters)
+
+    vt = likelihood.selection_function.surveyed_hypervolume(parameters)
+    nexp = jax.random.gamma(key, likelihood.n_posteriors)
+
+    # K in eq. 12 of 2602.20277
+    # rate of mergers (obsv'd and unobsv'd) per unit time
+    analysis_time = likelihood.selection_function.analysis_time
+    rate = nexp / extras['selection'] / analysis_time
+    
+    # K times integral over z of (1 / 1+z * dVc/dz)**(-1) * p(z)
+    # and we basically always take p(z) \propto (1 + z)**(lamb_z)
+    volumetric_rate = nexp / extras['selection'] / vt
+
+    max_variance = jnp.array(
+        [extras[f'var_{i}'] for i in range(likelihood.n_posteriors)]
+    ).max()
+    min_neff = 1 / (
+        max_variance + 1 / likelihood.samples_per_posterior
+    )
+
+    selection_neff = 1 / (
+        extras['selection_variance'] / likelihood.n_posteriors**2
+        + 1 / likelihood.samples_per_posterior
+    )
+
+    return dict(
+        rate=rate,
+        volumetric_rate=volumetric_rate,
+        min_neff=min_neff,
+        selection_neff=selection_neff,
+        **extras
+    )

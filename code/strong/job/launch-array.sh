@@ -25,8 +25,8 @@ sbatch \
     --array="0-$((n - 1))" \
     --output="${outdir}/slurm-%A_%a.out" \
     --error="${outdir}/slurm-%A_%a.err" \
-    --partition submit-gpu \
-    --time 00-12:00 \
+    --partition submit-gpu-express \
+    --time 00-01:00 \
     --mem 25GB \
     --export=ALL,BASE_CONFIG="$config",SWEEP_PARAM="$param",SWEEP_VALUES="$values_str" \
-    job/submit-array-task.sh
+    ./job/submit-array-task.sh

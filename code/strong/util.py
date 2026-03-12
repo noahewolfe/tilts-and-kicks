@@ -2,6 +2,22 @@ import os
 import json
 
 
+param_to_label = {
+    'weight_a' : r'$\xi$',
+    'sigma_1' : r'$\sigma_\chi$',
+    'sigma_2' : r'$\sigma_\chi^{\text{Iso}}$',
+    'sigma_3' : r'$\sigma_\chi^{\text{High iso}}$',
+    'log_likelihood' : r'$\ln \hat{\mathcal{L}}$',
+    'variance' : r'$\mathcal{V}$',
+    'mu_1' : r'$\mu_\chi$',
+    'mu_2' : r'$\mu_\chi^{\text{Iso}}$',
+    'mu_3' : r'$\mu_\chi^{\text{High iso}}$',
+    'm_cut' : r'$\tilde{m}$ [$\mathrm{M}_\odot$]',
+    'mu_tilt_1' : r'$\mu_t$',
+    'sigma_tilt_1' : r'$\sigma_t$'
+}
+
+
 def choose_grid(log_density, lower, upper, eps, n_init=11, n_max=10_000):
     # NOTE: in practice, it looks like I guessed roughly appropriate grid sizes
     """
@@ -447,3 +463,33 @@ def primary_mass_to_chirp_mass_jacobian(samples):
     """
     return (1 + samples["mass_ratio"]) ** 0.2 / samples["mass_ratio"] ** 0.6
 
+
+
+def merge_runs(results, evidence_weight=False, seed=12345):
+    """
+        results is a list of bilby result objects;
+        this should be used for merging nested sampling runs
+    """
+    import numpy as np
+    from pandas import concat
+    from scipy.special import logsumexp
+
+    rng = np.random.default_rng(seed)
+
+    if not evidence_weight:
+        combo = concat([r.nested_samples for r in results])
+        log_weights = np.log(combo['weights'])
+        log_weights -= logsumexp(log_weights)
+    else:
+        combo = concat([r.posterior for r in results])
+        log_z = np.array([r.log_bayes_factor for r in results])
+        log_weights = log_z - logsumexp(log_z)
+        log_weights = np.concatenate([
+            lw * np.ones(len(r.posterior))
+            for lw, r in zip(log_weights, results)
+        ])
+
+    weights = np.exp(log_weights)
+    keep = weights > rng.uniform(0, max(weights), len(weights))
+
+    return keep, combo.loc[keep]

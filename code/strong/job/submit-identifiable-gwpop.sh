@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=25G
 #SBATCH --time=2-00:00:00
-# --job-name, --output, --error set by launch-runs.sh
+# --job-name, --output, --error set by caller
 
 set -euo pipefail
 
@@ -27,6 +27,6 @@ apptainer exec \
     --bind /usr/bin/git:/usr/bin/git \
     --pwd "${SCRIPT_DIR}" \
     "${SIF}" \
-    bash ${SCRIPT_DIR}/job/run-multimass-gwpop.sh "$CONFIG"
+    bash ${SCRIPT_DIR}/job/run-identifiable-gwpop.sh "$CONFIG"
 
 echo "Finished : $(date)"
