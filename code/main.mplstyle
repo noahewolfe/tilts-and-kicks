@@ -1,0 +1,10 @@
+#font.family : "serif"
+#font.serif  : "Computer Modern Roman"
+font.size   : 16
+#text.usetex : True
+grid.alpha  : 1
+figure.dpi  : 100
+figure.figsize : 8,6
+axes.formatter.useoffset : False
+xtick.minor.size : 3
+xtick.major.size : 5
