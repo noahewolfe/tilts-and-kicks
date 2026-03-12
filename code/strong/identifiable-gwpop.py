@@ -11,6 +11,7 @@ from bilby.hyper.model import Model
 from bilby.core.prior import ConditionalPriorDict
 from bilby.core.prior import Uniform
 from bilby.core.prior import TruncatedNormal
+from bilby.core.prior import DeltaFunction
 from bilby.core.prior import DirichletElement
 
 import gwpopulation as gwpop
@@ -251,7 +252,8 @@ result.save_to_file(overwrite=True, extension='hdf5')
 # corner plot — first call early in case later code fails
 result.plot_corner()
 
-delta_keys = ['mmax_low', 'mmax_high_iso']
+delta_keys = [k for k in ['mmax_low', 'mmax_high_iso']
+              if isinstance(priors.get(k), DeltaFunction)]
 
 samples = result.posterior.to_dict('list')
 samples = {k: xp.array(v) for k, v in samples.items()}
@@ -265,6 +267,7 @@ extras['samples'] = samples
 h5ify.save(f'{outdir}/posterior.h5', extras, mode='w')
 
 result.posterior['variance'] = extras['variance']
+samples['variance'] = np.asarray(extras['variance'])
 corner_params = [k for k in result.posterior.keys() if k not in delta_keys]
 result.plot_corner(parameters=corner_params)
 
@@ -647,11 +650,15 @@ LOW_MASS_PARAMS = [
 HIGH_MASS_PARAMS = [
     'alpha_high_iso', 'delta_m_1_high_iso', 'beta_high_iso',
 ]
+if 'mmax_low' in samples:
+    LOW_MASS_PARAMS.append('mmax_low')
+    HIGH_MASS_PARAMS.append('mmax_low')
 SPIN_A = ['mu_1', 'sigma_1']
 SPIN_B = ['mu_2', 'sigma_2']
 SPIN_C = ['mu_3', 'sigma_3']
 TILT_A = ['mu_tilt_1', 'sigma_tilt_1']
 MIXING = ['weight_a', 'zeta']
+DIAG = ['variance']
 
 
 CORNER_KWARGS = dict(levels=(0.5, 0.9), plot_datapoints=False)
@@ -664,25 +671,25 @@ def _corner(keys, fname):
 
 # per-sub-population, all params
 _corner(
-    LOW_MASS_PARAMS + SPIN_A + TILT_A + ['weight_a'],
+    LOW_MASS_PARAMS + SPIN_A + TILT_A + ['weight_a'] + DIAG,
     f'{outdir}/corners/comp_a_all.png',
 )
 _corner(
-    LOW_MASS_PARAMS + SPIN_B + ['weight_a'],
+    LOW_MASS_PARAMS + SPIN_B + ['weight_a'] + DIAG,
     f'{outdir}/corners/comp_b_all.png',
 )
 _corner(
-    HIGH_MASS_PARAMS + SPIN_C + ['zeta'],
+    HIGH_MASS_PARAMS + SPIN_C + ['zeta'] + DIAG,
     f'{outdir}/corners/comp_c_all.png',
 )
 
 # per-sub-population, per sector (with mixing params)
-_corner(LOW_MASS_PARAMS + MIXING, f'{outdir}/corners/low_mass.png')
-_corner(HIGH_MASS_PARAMS + MIXING, f'{outdir}/corners/high_mass.png')
-_corner(SPIN_A + MIXING, f'{outdir}/corners/spin_mag_a.png')
-_corner(SPIN_B + MIXING, f'{outdir}/corners/spin_mag_b.png')
-_corner(SPIN_C + MIXING, f'{outdir}/corners/spin_mag_c.png')
-_corner(TILT_A + MIXING, f'{outdir}/corners/spin_tilt_a.png')
+_corner(LOW_MASS_PARAMS + MIXING + DIAG, f'{outdir}/corners/low_mass.png')
+_corner(HIGH_MASS_PARAMS + MIXING + DIAG, f'{outdir}/corners/high_mass.png')
+_corner(SPIN_A + MIXING + DIAG, f'{outdir}/corners/spin_mag_a.png')
+_corner(SPIN_B + MIXING + DIAG, f'{outdir}/corners/spin_mag_b.png')
+_corner(SPIN_C + MIXING + DIAG, f'{outdir}/corners/spin_mag_c.png')
+_corner(TILT_A + MIXING + DIAG, f'{outdir}/corners/spin_tilt_a.png')
 
 # cross-population: spin magnitude comparison
 spin_common = [
@@ -718,16 +725,16 @@ plt.close('all')
 
 # joint cross-population corners (all params on separate axes)
 _corner(
-    SPIN_A + SPIN_B + SPIN_C,
+    SPIN_A + SPIN_B + SPIN_C + DIAG,
     f'{outdir}/corners/spin_mag_joint.png',
 )
 _corner(
     ['alpha_1', 'mpp_1', 'sigpp_1', 'beta',
-     'alpha_high_iso', 'beta_high_iso'],
+     'alpha_high_iso', 'beta_high_iso'] + DIAG,
     f'{outdir}/corners/mass_shared_joint.png',
 )
 
 # mixing
-_corner(MIXING, f'{outdir}/corners/mixing.png')
+_corner(MIXING + DIAG, f'{outdir}/corners/mixing.png')
 
 print('done.')
