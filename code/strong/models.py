@@ -1019,3 +1019,60 @@ def identifiable_model(
     high = p_high_m1 * p_high_q * spin_C * tilt_iso
 
     return (1 - zeta) * low + zeta * high
+
+
+def make_massbinned_spin_model(bin_edges):
+    """Factory for a mass-binned spin model.
+
+    Each mass bin gets independent truncated-normal parameters for spin
+    magnitude and tilt. The same parameters apply to both binary components;
+    component 1 uses m1 to select its bin, component 2 uses m2 = q * m1.
+
+    Parameters
+    ----------
+    bin_edges : list of float
+        Bin edges [e_0, e_1, ..., e_N] defining N mass bins.
+
+    Returns
+    -------
+    callable
+        Model function with a ``variable_names`` attribute for bilby's Model.
+        Returns LINEAR probability density.
+    """
+    import gwpopulation as gwpop
+
+    edges = jnp.array(bin_edges)
+    interior = edges[1:-1]
+    n_bins = len(bin_edges) - 1
+
+    param_names = []
+    for k in range(n_bins):
+        param_names.extend([
+            f'mu_chi_{k}', f'sigma_chi_{k}',
+            f'mu_tilt_{k}', f'sigma_tilt_{k}',
+        ])
+
+    def massbinned_spin(dataset, **kwargs):
+        m1 = dataset['mass_1']
+        m2 = m1 * dataset['mass_ratio']
+        a1, a2 = dataset['a_1'], dataset['a_2']
+        ct1, ct2 = dataset['cos_tilt_1'], dataset['cos_tilt_2']
+
+        mu_chi = jnp.array([kwargs[f'mu_chi_{k}'] for k in range(n_bins)])
+        sig_chi = jnp.array([kwargs[f'sigma_chi_{k}'] for k in range(n_bins)])
+        mu_tilt = jnp.array([kwargs[f'mu_tilt_{k}'] for k in range(n_bins)])
+        sig_tilt = jnp.array([kwargs[f'sigma_tilt_{k}'] for k in range(n_bins)])
+
+        idx1 = jnp.searchsorted(interior, m1, side='right')
+        idx2 = jnp.searchsorted(interior, m2, side='right')
+
+        p = (
+            gwpop.utils.truncnorm(a1, mu_chi[idx1], sig_chi[idx1], 1, 0)
+            * gwpop.utils.truncnorm(a2, mu_chi[idx2], sig_chi[idx2], 1, 0)
+            * gwpop.utils.truncnorm(ct1, mu_tilt[idx1], sig_tilt[idx1], 1, -1)
+            * gwpop.utils.truncnorm(ct2, mu_tilt[idx2], sig_tilt[idx2], 1, -1)
+        )
+        return p
+
+    massbinned_spin.variable_names = param_names
+    return massbinned_spin

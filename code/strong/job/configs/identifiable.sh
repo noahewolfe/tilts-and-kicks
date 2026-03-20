@@ -1,7 +1,7 @@
-outdir="/home/submit/newolfe/projects/tilts-and-kicks/data/inference/strong/identifiable/noah/free-mmax-low"
+outdir="/home/submit/newolfe/projects/tilts-and-kicks/data/inference/strong/identifiable/noah/var5"
 which_data="noah"
-nlive=200
-max_uncertainty=1
+nlive=1000
+max_uncertainty=5
 sampling_seed=1701
 priors="./priors/identifiable.prior"
 sampler_settings="fast"
