@@ -1,0 +1,33 @@
+### IMF
+mprog_min=3
+mprog_max=100
+mprog_break=50
+
+alpha_prog_1=2.1
+alpha_prog_2=1.1
+    
+### initial -> final mass
+mbhmax = Uniform(minimum=40, maximum=60)
+mturnover = Uniform(minimum=30, maximum=39)
+
+beta_1g1g = Uniform(minimum=-2, maximum=5)
+beta_1g2g = Uniform(minimum=-2, maximum=5)
+
+### dynamical pop 1g+1g vs 1g+2g
+zeta = Uniform(minimum=0, maximum=1)
+
+### spin mag
+mu_chi = Uniform(minimum=0, maximum=1)
+sigma_chi = Uniform(minimum=0.1, maximum=2)
+
+### spin tilts
+mu_spin_0 = Uniform(minimum=-1, maximum=1)
+sigma_spin_0 = Uniform(minimum=0.1, maximum=5)
+
+mu_spin_1 = Uniform(minimum=-1, maximum=1)
+sigma_spin_1 = Uniform(minimum=0.1, maximum=5)
+
+### redshift
+lamb = Uniform(minimum=-6, maximum=6)
+z_max = 2.3
+    
