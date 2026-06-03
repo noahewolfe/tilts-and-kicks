@@ -99,6 +99,7 @@ def get_posteriors(
     seed = 1
 ):
     datadir = get_datadir(datadir, catalog, pars)
+    print('datadir=', datadir)
     datapath = f'{datadir}/posteriors.h5'
 
     if load and os.path.exists(datapath):

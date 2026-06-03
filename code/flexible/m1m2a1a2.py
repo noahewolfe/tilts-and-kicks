@@ -21,21 +21,20 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     '--parentdir',
     type=str,
-    default='../../data/inference/pixelpop/hmc/mass-spin'
+    default='../../data/inference/pixelpop/hmc/m1m2a1a2'
 )
 parser.add_argument('--name', type=str)
 parser.add_argument('--marginalize-sigma', action='store_true')
 parser.add_argument('--maximum-variance', type=float, default=1)
 parser.add_argument('--parallel', type=int, default=1)
 parser.add_argument('--seed', type=int, default=1)
-parser.add_argument('--bins', type=int, nargs=6, help='number of bins, [m1 m2 a1 a2 t1 t2]') 
 
 mmin = 3
 mmax = 300
 z_max = 2.3
 
-parameters = ['log_mass_1', 'log_mass_2', 'a_1', 'a_2', 'cos_tilt_1', 'cos_tilt_2']
-other_parameters = ['redshift']
+parameters = ['log_mass_1', 'log_mass_2', 'a_1', 'a_2']
+other_parameters = ['redshift', 't']
 
 
 def parse_args():
@@ -46,7 +45,6 @@ def parse_args():
     return (
         parentdir,
         name,
-        args.bins,
         args.maximum_variance,
         args.marginalize_sigma,
         args.parallel,
@@ -82,15 +80,7 @@ def clean_data(data, min_m=mmin, max_m=mmax, max_z=z_max, remove=False):
 
 
 if __name__ == '__main__':
-    (
-        parentdir,
-        name,
-        bins,
-        maximum_variance,
-        marginalize_sigma,
-        parallel,
-        seed
-    ) = parse_args()
+    parentdir, name, maximum_variance, marginalize_sigma, parallel, seed = parse_args()
 
     posteriors, injections = load_data()
 
@@ -105,33 +95,29 @@ if __name__ == '__main__':
     }
 
     probabilistic_model, initial_value = setup_probabilistic_model(
-        posteriors,  # individual GW parameters
-        injections,  # injections to estimate selection effects
-        parameters,  # parameters to infer with PixelPop ICAR model
-        other_parameters,  # nuisance parameters
-        bins,  # number of bins along each axis
+        posteriors,
+        injections,
+        parameters,
+        other_parameters,
+        [40, 40, 10, 10],
         minima={
             'log_mass_1': np.log(mmin),
             'log_mass_2': np.log(mmin),
             'a_1': 0.0,
             'a_2': 0.0,
-            'cos_tilt_1': -1.0,
-            'cos_tilt_2': -1.0,
         },
         maxima={
             'log_mass_1': np.log(mmax),
             'log_mass_2': np.log(mmax),
             'a_1': 1.0,
             'a_2': 1.0,
-            'cos_tilt_1': 1.0,
-            'cos_tilt_2': 1.0,
         },
-        priors=priors,  # priors which differ from defaults
-        UncertaintyCut=np.sqrt(maximum_variance),  # convergence criteria for likelihood estimator
-        parametric_models={}, # parametric models for nuisance parameters are set to defaults
-        length_scales=False, # same ICAR Gaussian coupling strength in all directions
-        random_initialization=True, # initialize ICAR model from random Gaussian draw
-        lower_triangular=True, # Restrict domain to m1 > m2
+        priors=priors,
+        UncertaintyCut=np.sqrt(maximum_variance),
+        parametric_models={},
+        length_scales=False,
+        random_initialization=True,
+        lower_triangular=True,
         marginalize_sigma=marginalize_sigma
     )
 
@@ -140,6 +126,9 @@ if __name__ == '__main__':
         'log_likelihood',
         'log_likelihood_variance',
         'lamb',
+        'mu_tilt',
+        'sig_tilt',
+        'zeta_tilt',
     ]
 
     if not marginalize_sigma:
@@ -149,7 +138,7 @@ if __name__ == '__main__':
         probabilistic_model,
         model_kwargs={'posteriors': posteriors, 'injections': injections},
         initial_value=initial_value,
-        warmup=500_000,
+        warmup=250_000,
         tot_samples=1_000,
         thinning=500,
         pacc=0.45,
