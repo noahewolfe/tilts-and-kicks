@@ -81,7 +81,7 @@ if __name__ == '__main__':
 
     posteriors['log_prior'] = jnp.log(posteriors['prior'])
     injections['log_prior'] = jnp.log(injections['prior'])
-    
+ 
     clean_data(posteriors)
     clean_data(injections, remove=True)
 
@@ -153,7 +153,7 @@ if __name__ == '__main__':
         probabilistic_model,
         model_kwargs={'posteriors': posteriors, 'injections': injections},
         initial_value=initial_value,
-        warmup=250_000,
+        warmup=500_000,
         tot_samples=1_000,
         thinning=500,
         pacc=0.45,
