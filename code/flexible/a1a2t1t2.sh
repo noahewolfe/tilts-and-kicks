@@ -8,7 +8,7 @@
 #SBATCH -t 01-00:00
 
 parentdir="../../data/inference/pixelpop/hmc/a1a2t1t2"
-name="nb10x10x10x10-var1-chain4-margsig-nwarm5e5"
+name="nb10x10x10x10-var1-chain4-margsig-nwarm250-mtd10-p65"
 
 outdir="${parentdir}/${name}"
 

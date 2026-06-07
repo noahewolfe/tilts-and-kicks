@@ -81,6 +81,52 @@ def clean_data(data, min_m=mmin, max_m=mmax, max_z=z_max, remove=False):
     clean_par(data, 'redshift', 0., max_z, remove=remove)
 
 
+def save(outdir, bins):
+    import h5ify
+    from pixelpop.result import create_popsummary
+    from numpyro.distributions import Delta
+
+    # TODO: put in a more generic inference harness for these pixelpop runs?
+    # TODO: pass through support for combining chains?
+
+    samples = h5ify.load(f'{outdir}/chain_0_samples.h5')
+
+    mmin = 3
+    mmax = 300
+
+    minima = {
+        'log_mass_1': np.log(mmin),
+        'log_mass_2': np.log(mmin),
+        'a_1' : 0.0,
+        'a_2' : 0.0,
+        'cos_tilt_1': -1.0,
+        'cos_tilt_2': -1.0,
+    }
+
+    maxima = {
+        'log_mass_1': np.log(mmax),
+        'log_mass_2': np.log(mmax),
+        'a_1' : 1.0,
+        'a_2' : 1.0,
+        'cos_tilt_1': 1.0,
+        'cos_tilt_2': 1.0,
+    }
+
+    create_popsummary(
+        samples,
+        'result',
+        ['log_mass_1', 'log_mass_2', 'a_1', 'a_2', 'cos_tilt_1', 'cos_tilt_2'],
+        ['redshift'],
+        popsummary_path=f'{outdir}/popsummary',
+        datadir='/n/home03/newolfe/projects/tilts-and-kicks/data',
+        minima=minima,
+        maxima=maxima,
+        priors=dict(max_z=([z_max], Delta)),
+        lower_triangular=True,
+        bins=bins
+    )
+
+
 if __name__ == '__main__':
     (
         parentdir,

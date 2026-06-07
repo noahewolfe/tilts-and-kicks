@@ -14,7 +14,7 @@ outdir="${parentdir}/${name}"
 
 mkdir -p $outdir
 
-/n/home03/newolfe/.conda/envs/just-for-kicks/bin/python -u mass-spin.py \
+/n/home03/newolfe/.conda/envs/just-for-kicks/bin/python -u mass_spin.py \
     --name $name \
     --parentdir $parentdir \
     --bins 20 20 5 5 5 5 \
